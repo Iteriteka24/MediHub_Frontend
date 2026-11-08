@@ -1,33 +1,41 @@
 # MediHub — interfaces frontend
 
-Le frontend est organisé en deux applications indépendantes, conformément au rapport du projet :
+Le frontend est organisé en deux applications indépendantes, conformément au rapport du projet. Les commandes peuvent être lancées depuis la racine `D:\MediHub` :
 
 - `staff/` : interface interne React + Vite pour le personnel de l’établissement.
 - `patient-portal/` : portail patient Next.js, responsive.
 
 Les deux interfaces fonctionnent actuellement sans backend. Les données sont de démonstration et restent dans l’état local du navigateur/session. Aucun appel réseau n’est effectué vers une API.
 
+## Installation initiale
+
+```powershell
+npm install
+```
+
 ## Lancer l’interface du personnel
 
 ```powershell
-cd staff
-npm install
 npm run dev
 ```
 
-Vite affiche l’adresse locale, généralement `http://localhost:5173`.
+Vite affiche l’adresse locale, généralement `http://localhost:5173`. `npm run dev:staff` est un alias.
 
 ## Lancer le portail patient
 
-Dans un autre terminal :
+Dans un deuxième terminal, depuis `D:\MediHub` :
 
 ```powershell
-cd patient-portal
-npm install
-npm run dev
+npm run dev:portal
 ```
 
 Le portail est généralement disponible sur `http://localhost:3000`. Pour ouvrir la session de démonstration, saisir un numéro d’au moins 8 chiffres puis le code `2468`.
+
+Pour compiler les deux applications :
+
+```powershell
+npm run build
+```
 
 ## Raccordement ultérieur au backend
 

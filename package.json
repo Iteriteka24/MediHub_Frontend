@@ -1,0 +1,15 @@
+{
+  "name": "medihub-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "staff",
+    "patient-portal"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=staff",
+    "dev:staff": "npm run dev --workspace=staff",
+    "dev:portal": "npm run dev --workspace=patient-portal",
+    "build": "npm run build --workspace=staff && npm run build --workspace=patient-portal"
+  }
+}
