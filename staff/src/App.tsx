@@ -3,9 +3,10 @@ import './App.css'
 import './reference-overrides.css'
 import { AdmissionPage, AppointmentPage, ConsultationPage, DispensePage, ExternalDispensePage, initialMedicationLots, InvoicePage, LabOrderPage, type AdmissionRecord, type AppointmentRecord, type ConsultationRecord, type DispenseRecord, type InvoiceRecord, type LabOrderRecord, type MedicationLot } from './ActionPages'
 import { AuthPage } from './AuthPage'
+import { getStaffPatients, getStaffSession, logoutStaff, type SharedPatientHistory } from './api'
 import { featureForPage, featureForRoute, homePageForRole, type AuthSession, type StaffPermission } from './auth'
 
-type Patient = { initials: string; name: string; id: string; age: number; sex: string; phone: string; status: string; color: string }
+type Patient = { initials: string; name: string; id: string; age: number; sex: string; phone: string; status: string; color: string; sharedHistories?: SharedPatientHistory[] }
 
 const initialPatients: Patient[] = [
   { initials: 'AM', name: 'Aline Mukamana', id: 'PAT-2026-0248', age: 34, sex: 'Femme', phone: '+257 79 22 14 08', status: 'Actif', color: 'rose' },
@@ -26,17 +27,13 @@ function readSaved<T>(key: string): T[] {
   catch { return [] }
 }
 
-function readSession(): AuthSession | null {
-  try { return JSON.parse(localStorage.getItem('medihub.session') || 'null') as AuthSession | null }
-  catch { return null }
-}
-
 function scopedKey(session: AuthSession | null, key: string) {
   return `medihub:${session?.facility.id || 'hospital-kira'}:${key}`
 }
 
 function App() {
-  const [session, setSession] = useState<AuthSession | null>(readSession)
+  const [session, setSession] = useState<AuthSession | null>(null)
+  const [checkingSession, setCheckingSession] = useState(true)
   const [page, setPage] = useState(() => session ? homePageForRole(session.user.role) : 'Vue d’ensemble')
   const [route, setRoute] = useState(() => window.location.pathname)
   const [query, setQuery] = useState('')
@@ -59,6 +56,19 @@ function App() {
   }, [])
 
   useEffect(() => {
+    let active = true
+    getStaffSession().then(next => {
+      if (active && next) {
+        setSession(next)
+        setPage(homePageForRole(next.user.role))
+      }
+    }).catch(() => {
+      if (active) setNotice('Le serveur MediHub est indisponible. Vérifiez qu’il fonctionne sur http://localhost:8000.')
+    }).finally(() => { if (active) setCheckingSession(false) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
     if (!session) return
     const key = (name: string) => scopedKey(session, name)
     const savedPatients = readSaved<Patient>(key('patients'))
@@ -69,6 +79,27 @@ function App() {
     const savedLots = readSaved<MedicationLot>(key('medicationLots'))
     setMedicationLots(savedLots.length ? savedLots : initialMedicationLots)
   }, [session?.facility.id])
+
+  useEffect(() => {
+    if (!session || !session.permissions.includes('patients') || session.facility.type !== 'hospital') return
+    let active = true
+    getStaffPatients().then(response => {
+      if (!active) return
+      const records = Array.isArray(response) ? response : response.results
+      const mapped: Patient[] = records.map((record, index) => {
+        const name = `${record.prenom_patient} ${record.nom_patient}`.trim()
+        const birth = new Date(`${record.date_naissance}T00:00:00`)
+        const now = new Date()
+        const age = Number.isNaN(birth.getTime()) ? 0 : now.getFullYear() - birth.getFullYear() - (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0)
+        const initials = name.split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase()
+        return { initials, name, id: record.id_patient, age, sex: record.sexe === 'F' ? 'Femme' : record.sexe === 'M' ? 'Homme' : record.sexe, phone: record.telephones?.[0]?.numero_telephone || 'Non renseigné', status: 'Actif', color: ['teal', 'blue', 'green', 'amber', 'purple'][index % 5], sharedHistories: record.historiques_medicaux_recus || [] }
+      })
+      setPatients(mapped)
+    }).catch(error => {
+      if (active) setNotice(error instanceof Error ? `Impossible de charger les dossiers patients : ${error.message}` : 'Impossible de charger les dossiers patients.')
+    })
+    return () => { active = false }
+  }, [session?.facility.id, session?.permissions.join(','), session?.facility.type])
 
   useEffect(() => {
     if (!session && window.location.pathname !== '/connexion') {
@@ -126,13 +157,19 @@ function App() {
   const allowed = (permission?: StaffPermission) => !permission || !!session?.permissions.includes(permission)
   const activeNav = nav.map(section => ({ ...section, items: section.items.filter(([label]) => allowed(featureForPage(label))) })).filter(section => section.items.length)
 
-  function logout() {
-    localStorage.removeItem('medihub.session')
-    setSession(null)
-    setRoute('/')
+  async function logout() {
+    try {
+      await logoutStaff()
+      setSession(null)
+      setRoute('/connexion')
+      window.history.replaceState({}, '', '/connexion')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'La déconnexion a échoué.')
+    }
   }
 
-  if (!session) return <AuthPage onLogin={profile => { localStorage.setItem('medihub.session', JSON.stringify(profile)); setSession(profile); setPage(homePageForRole(profile.user.role)); navigate('/') }} />
+  if (checkingSession) return <main className="auth-screen"><div className="auth-card"><div className="auth-brand"><span>✚</span><div><b>MediHub</b><small>ESPACE DU PERSONNEL</small></div></div><p>Vérification de votre session…</p></div></main>
+  if (!session) return <AuthPage onLogin={profile => { setSession(profile); setPage(homePageForRole(profile.user.role)); window.history.replaceState({}, '', '/'); setRoute('/') }} />
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -142,7 +179,7 @@ function App() {
       <div className="sidebar-bottom"><button className="nav-item" onClick={() => setNotice('Centre d’aide : support@medihub.bi')}><span className="nav-icon">?</span>Aide & support</button><div className="user-card"><div className="avatar avatar-teal">{session.user.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</div><div><b>{session.user.name}</b><small>{session.user.role}</small></div></div></div>
     </aside>
     <main className="main-area">
-      <header className="topbar"><div className="crumb">▦ &nbsp;{session.facility.name} <span>›</span> <b>{session.user.role}</b></div><div className="top-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => allowed('patients') && setPage('Patients')} placeholder="Rechercher" /></label>{allowed('pharmacy') && session.facility.type === 'hospital' && <button className="tenant-toggle" onClick={() => setPage('Pharmacie')}>⇄ &nbsp;Pharmacie partenaire</button>}<div className="today">◷ <span>7 nov. 2026</span></div><button className="icon-button" aria-label="Notifications" onClick={() => setNotice('Vous êtes à jour. Aucune nouvelle notification.')}>♧<i /></button><button className="top-logout" type="button" onClick={logout}><span aria-hidden="true">?</span> D?connexion</button><div className="top-avatar" title={session.user.name}>{session.user.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</div></div></header>
+      <header className="topbar"><div className="crumb">▦ &nbsp;{session.facility.name} <span>›</span> <b>{session.user.role}</b></div><div className="top-actions"><label className="global-search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => allowed('patients') && setPage('Patients')} placeholder="Rechercher" /></label>{allowed('pharmacy') && session.facility.type === 'hospital' && <button className="tenant-toggle" onClick={() => setPage('Pharmacie')}>⇄ &nbsp;Pharmacie partenaire</button>}<div className="today">◷ <span>7 nov. 2026</span></div><button className="icon-button" aria-label="Notifications" onClick={() => setNotice('Vous êtes à jour. Aucune nouvelle notification.')}>♧<i /></button><button className="top-logout" type="button" onClick={logout}><span aria-hidden="true">↪</span> Déconnexion</button><div className="top-avatar" title={session.user.name}>{session.user.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</div></div></header>
       <div className="content">
         {notice && <div className="toast">✓ &nbsp;{notice}<button onClick={() => setNotice('')}>×</button></div>}
         {!allowed(routeFeature || pageFeature) ? <AccessDenied onReturn={() => { navigate('/'); setPage(homePageForRole(session.user.role)) }} /> : route === '/rendez-vous/nouveau' ? <AppointmentPage onBack={() => { navigate('/'); setPage('Rendez-vous') }} onSave={saveAppointment} />
@@ -202,7 +239,9 @@ function Patients({ patients, query, setQuery, onAdd, onUpdate, onStartConsultat
     <div className="directory-toolbar"><div className="directory-search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un patient par nom ou dossier..."/><button className="btn-light" onClick={exportCsv}>⇩ Exporter CSV</button><button className="btn-primary" onClick={onAdd}>＋ Enregistrer un patient</button></div><div className="directory-filters">{['Tous','En consultation','Actif','Suivi requis'].map((f) => <button key={f} className={filter===f?'selected':''} onClick={() => setFilter(f)}>{f}{f==='En consultation'&&<span>18</span>}</button>)}</div></div>
     <div className="security-banner"><span>♢</span><b>ACCÈS MÉDICAL SÉCURISÉ · RBAC ACTIF</b><span>Seuls les médecins et infirmiers accrédités peuvent modifier l’anamnèse, les allergies et les diagnostics CIM-10.</span><strong>Rôle : Médecin chef</strong><i>●</i></div>
     <div className="patient-record-layout"><section className="panel active-records"><div className="records-heading"><div><b>FILE ACTIVE · DÉMONSTRATION</b><small>{list.length} dossiers récents</small></div><span className="count-pill">{list.length}</span></div><div className="record-list">{list.map((p) => <button key={p.id} className={`record-entry ${selected?.id===p.id?'chosen':''}`} onClick={() => setSelectedId(p.id)}><div className={`record-photo avatar-${p.color}`}>{p.initials}</div><div className="record-name"><b>{p.name}</b><small>{p.id}</small></div><div className="record-meta"><span>{p.status==='En consultation'?'● En consultation':p.status==='Suivi requis'?'Lit MI-04':p.sex==='Femme'?'A+':'O+'}</span><small>{p.age} ans · {p.sex}</small></div></button>)}</div><div className="wait-stat"><div><small>Temps moyen d’attente</small><b>14 min</b></div><span>⌁⌁⌁⌁</span></div></section>
-      {selected ? <section className="patient-profile"><div className="panel patient-identity"><div className={`profile-photo avatar-${selected.color}`}>{selected.initials}</div><div className="profile-main"><h2>{selected.name}</h2><span className="profile-pills"><i>{selected.status}</i><i>{selected.age} ans · {selected.sex}</i></span><p>▣ &nbsp;Dossier : {selected.id}</p><p>⌖ &nbsp;Gitega, Burundi</p><p>♧ &nbsp;Assurance santé · À vérifier</p></div><div className="profile-actions"><button className="btn-light">▤ Fiche</button><button className="btn-navy" onClick={() => setTab('Historique consultations')}>⊟ Bilan labo</button><button className="btn-primary" onClick={() => onStartConsultation(selected)}>✚ Démarrer consultation</button></div><div className="allergy-alert"><b>△ &nbsp;INFORMATIONS CLINIQUES À CONFIRMER</b><span>Vérifier allergies et antécédents avec le patient avant toute prescription.</span></div></div><nav className="record-tabs">{tabs.map((t,i)=><button key={t} className={tab===t?'selected':''} onClick={() => setTab(t)}>{['♙','♧','⌕','▣','▤'][i]} &nbsp;{t}</button>)}</nav><div className="panel civil-register"><div className="panel-head"><h2>▣ {tab==='Informations administratives'?'Registre d’état civil & contacts':tab}</h2><button className="btn-light" onClick={() => setShowEdit(true)}>✎ Modifier infos</button></div><div className="civil-cards"><article><small>IDENTITÉ NATIONALE</small><p>Nom complet : {selected.name}<br/>Sexe : {selected.sex}<br/>Âge : {selected.age} ans<br/>N° patient : {selected.id}<br/>Établissement : Hôpital Kira</p></article><article><small>TÉLÉPHONES & CONTACTS</small><p>Téléphone principal :<br/><b>{selected.phone}</b><br/>Courriel : non renseigné<br/>Contact d’urgence : à compléter</p></article><article><small>RÉSIDENCE PRINCIPALE</small><p>Commune : Gitega<br/>Province : Gitega<br/>Quartier : à compléter<br/>Profession : non renseignée</p></article></div><div className="record-consent">♧ &nbsp;Informations de dossier affichées selon le rôle actif. Les accès sensibles sont journalisés.</div></div></section> : <div className="panel empty-state">Aucun dossier ne correspond aux critères de recherche.</div>}
+      {selected ? <section className="patient-profile"><div className="panel patient-identity"><div className={`profile-photo avatar-${selected.color}`}>{selected.initials}</div><div className="profile-main"><h2>{selected.name}</h2><span className="profile-pills"><i>{selected.status}</i><i>{selected.age} ans · {selected.sex}</i></span><p>▣ &nbsp;Dossier : {selected.id}</p><p>⌖ &nbsp;Gitega, Burundi</p><p>♧ &nbsp;Assurance santé · À vérifier</p></div><div className="profile-actions"><button className="btn-light">▤ Fiche</button><button className="btn-navy" onClick={() => setTab('Historique consultations')}>⊟ Bilan labo</button><button className="btn-primary" onClick={() => onStartConsultation(selected)}>✚ Démarrer consultation</button></div><div className="allergy-alert"><b>△ &nbsp;INFORMATIONS CLINIQUES À CONFIRMER</b><span>Vérifier allergies et antécédents avec le patient avant toute prescription.</span></div></div><nav className="record-tabs">{tabs.map((t,i)=><button key={t} className={tab===t?'selected':''} onClick={() => setTab(t)}>{['♙','♧','⌕','▣','▤'][i]} &nbsp;{t}</button>)}</nav><div className="panel civil-register"><div className="panel-head"><h2>▣ {tab==='Informations administratives'?'Registre d’état civil & contacts':tab}</h2><button className="btn-light" onClick={() => setShowEdit(true)}>✎ Modifier infos</button></div><div className="civil-cards"><article><small>IDENTITÉ NATIONALE</small><p>Nom complet : {selected.name}<br/>Sexe : {selected.sex}<br/>Âge : {selected.age} ans<br/>N° patient : {selected.id}<br/>Établissement : Hôpital Kira</p></article><article><small>TÉLÉPHONES & CONTACTS</small><p>Téléphone principal :<br/><b>{selected.phone}</b><br/>Courriel : non renseigné<br/>Contact d’urgence : à compléter</p></article><article><small>RÉSIDENCE PRINCIPALE</small><p>Commune : Gitega<br/>Province : Gitega<br/>Quartier : à compléter<br/>Profession : non renseignée</p></article></div><div className="record-consent">♧ &nbsp;Informations de dossier affichées selon le rôle actif. Les accès sensibles sont journalisés.</div></div>
+        {!!selected.sharedHistories?.length && <section className="panel staff-shared-history"><div className="panel-head"><div><h2>Historique médical partagé</h2><p>Résumé transmis avec le consentement du patient</p></div><span className="count-pill">{selected.sharedHistories.length}</span></div>{selected.sharedHistories.map(history => <article key={history.id_historique_partage} className="staff-shared-record"><div><b>Établissement source : {history.hopital_source}</b><small>Consentement enregistré le {new Date(history.date_consentement).toLocaleString('fr-FR')}</small></div><p>Allergies : {history.resume_medical.allergies || 'non renseignées'}<br/>Antécédents : {history.resume_medical.antecedents_medicaux || 'non renseignés'}<br/>Groupe sanguin : {history.resume_medical.groupe_sanguin || 'non renseigné'}</p>{history.resume_medical.mesures_poids?.map((measure, index) => <small className="staff-shared-weight" key={`${measure.date_mesure}-${index}`}>Poids : {measure.poids_kg} kg · {measure.date_mesure}</small>)}{history.documents.length > 0 && <div className="staff-shared-documents"><b>Documents reçus</b>{history.documents.map(document => <div key={document.id_document_partage}><span>{document.titre}</span><small>{document.type_document.replaceAll('_', ' ')} · {document.date_document || 'Date non renseignée'}</small></div>)}</div>}</article>)}</section>}
+      </section> : <div className="panel empty-state">Aucun dossier ne correspond aux critères de recherche.</div>}
     {showEdit && selected && <EditPatientModal patient={selected} onClose={() => setShowEdit(false)} onSave={patient => { onUpdate(patient); setShowEdit(false) }} />}
     </div>
   </>

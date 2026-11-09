@@ -1,42 +1,49 @@
-# MediHub — interfaces frontend
+# MediHub Frontend
 
-Le frontend est organisé en deux applications indépendantes, conformément au rapport du projet. Les commandes peuvent être lancées depuis la racine `D:\MediHub` :
+Le dépôt contient deux applications connectées progressivement au backend Django MediHub :
 
-- `staff/` : interface interne React + Vite pour le personnel de l’établissement.
-- `patient-portal/` : portail patient Next.js, responsive.
+- `staff/` : espace du personnel soignant et administratif, construit avec React et Vite.
+- `patient-portal/` : portail patient construit avec Next.js.
 
-Les deux interfaces fonctionnent actuellement sans backend. Les données sont de démonstration et restent dans l’état local du navigateur/session. Aucun appel réseau n’est effectué vers une API.
+## Installation et démarrage
 
-## Installation initiale
+Depuis la racine du dépôt :
 
 ```powershell
 npm install
+npm run dev:staff
 ```
 
-## Lancer l’interface du personnel
-
-```powershell
-npm run dev
-```
-
-Vite affiche l’adresse locale, généralement `http://localhost:5173`. `npm run dev:staff` est un alias.
-
-## Lancer le portail patient
-
-Dans un deuxième terminal, depuis `D:\MediHub` :
+Dans un autre terminal, lancer le portail patient :
 
 ```powershell
 npm run dev:portal
 ```
 
-Le portail est généralement disponible sur `http://localhost:3000`. Pour ouvrir la session de démonstration, saisir un numéro d’au moins 8 chiffres puis le code `2468`.
+Vite démarre généralement sur `http://localhost:5173` et Next.js sur `http://localhost:3000`.
 
-Pour compiler les deux applications :
+## Connexion au backend
+
+Le backend Django est configuré à `http://localhost:8000` par défaut. Les exemples de configuration se trouvent dans `staff/.env.example` et `patient-portal/.env.example`. Si l’adresse du backend change, la définir dans `VITE_API_BASE_URL` et `NEXT_PUBLIC_API_BASE_URL`.
+
+Pour le développement local, autoriser les deux origines dans la configuration CORS/CSRF du backend et conserver `CORS_ALLOW_CREDENTIALS=True`. Les interfaces envoient les cookies de session; les requêtes d’écriture envoient le jeton `X-CSRFToken`.
+
+## Portail patient
+
+Le patient peut créer un compte ou se connecter avec son identifiant et son mot de passe, puis confirmer le téléphone avec le code reçu. Après authentification, il peut :
+
+- consulter ses dossiers, son profil et ses documents pour chaque hôpital;
+- choisir un hôpital, un médecin et un créneau, puis prendre rendez-vous;
+- partager son résumé médical et les documents sélectionnés avec un autre hôpital après lecture du récapitulatif et consentement explicite.
+
+Le backend crée un dossier local lors d’une première réservation dans un hôpital. Pour recevoir un partage, le dossier du patient doit déjà exister à l’hôpital destinataire : il faut donc y prendre rendez-vous avant de partager. Les codes SMS réels nécessitent la configuration du service d’envoi côté backend; le code simulé est disponible en mode démonstration. Le backend ne fournit pas encore de route de liste des rendez-vous pour le compte patient, donc l’interface présente la confirmation de réservation reçue.
+
+## Espace du personnel
+
+L’authentification du personnel utilise la session backend. La liste des patients hospitaliers est chargée depuis l’API; le dossier affiche les résumés médicaux et documents reçus par partage lorsque le rôle du personnel y est autorisé par le backend. Certains formulaires et modules métier du personnel utilisent encore des données de démonstration.
+
+## Compilation
 
 ```powershell
 npm run build
 ```
-
-## Raccordement ultérieur au backend
-
-Les applications peuvent être reliées séparément à l’API Django/DRF. Les données d’exemple et les actions de démonstration devront alors être remplacées par des services d’API, avec gestion de session, CSRF et origines CORS selon la configuration du backend. Le code de vérification du portail est simulé, comme prévu pour la démonstration du projet.
