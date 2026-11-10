@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import './App.css'
 import './reference-overrides.css'
 import './personnel.css'
-import { AdmissionPage, AppointmentPage, ConsultationPage, DispensePage, ExternalDispensePage, InvoicePage, LabOrderPage, type AdmissionRecord, type AppointmentRecord, type ConsultationRecord, type DispenseRecord, type InvoiceRecord, type LabOrderRecord, type MedicationLot } from './ActionPages'
+import { AppointmentPage, type AppointmentRecord } from './ActionPages'
 import { AuthPage } from './AuthPage'
-import { createStaffAppointment, getStaffAppointments, getStaffDoctors, getStaffPatients, getStaffSession, logoutStaff, type BackendAppointment, type BackendDoctor, type SharedPatientHistory } from './api'
+import { addStaffPatientTelephone, createStaffAppointment, createStaffPatient, getStaffAppointments, getStaffDoctors, getStaffPatients, getStaffSession, logoutStaff, type BackendAppointment, type BackendDoctor, type SharedPatientHistory } from './api'
 import { Dashboard as StaffDashboard } from './Dashboard'
 import { PersonnelPage } from './PersonnelPage'
+import { AdmissionsModule, BillingModule, ConsultationsModule, LaboratoryModule, PharmacyModule } from './PersistedModules'
 import { featureForPage, featureForRoute, homePageForRole, type AuthSession, type StaffPermission } from './auth'
 
 type Patient = { initials: string; name: string; id: string; age: number; sex: string; phone: string; color: string; adresse?: string; allergies?: string; antecedents?: string; groupeSanguin?: string; sharedHistories?: SharedPatientHistory[] }
@@ -21,10 +22,6 @@ const nav = [
   { group: 'GESTION', items: [['Pharmacie', '⌁'], ['Facturation', '▧'], ['Personnel', '♧']] },
 ]
 
-function scopedKey(session: AuthSession | null, key: string) {
-  return `medihub:${session?.facility.id || 'hospital-kira'}:${key}`
-}
-
 function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [checkingSession, setCheckingSession] = useState(true)
@@ -36,12 +33,7 @@ function App() {
   const [appointments, setAppointments] = useState<AppointmentRecord[]>([])
   const [doctors, setDoctors] = useState<BackendDoctor[]>([])
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0)
-  const [invoices, setInvoices] = useState<InvoiceRecord[]>([])
-  const [consultations, setConsultations] = useState<ConsultationRecord[]>([])
-  const [admissions, setAdmissions] = useState<AdmissionRecord[]>([])
-  const [labOrders, setLabOrders] = useState<LabOrderRecord[]>([])
-  const [dispensations, setDispensations] = useState<DispenseRecord[]>([])
-  const [medicationLots, setMedicationLots] = useState<MedicationLot[]>([])
+  const [patientRefreshKey, setPatientRefreshKey] = useState(0)
   const filtered = useMemo(() => patients.filter((p) => `${p.name} ${p.id} ${p.phone}`.toLowerCase().includes(query.toLowerCase())), [patients, query])
 
   useEffect(() => {
@@ -71,8 +63,7 @@ function App() {
 
   useEffect(() => {
     setPatients([])
-    setAppointments([]); setInvoices([]); setConsultations([]); setAdmissions([])
-    setLabOrders([]); setDispensations([]); setMedicationLots([])
+    setAppointments([])
   }, [session?.facility.id])
 
   useEffect(() => {
@@ -94,7 +85,7 @@ function App() {
       if (active) setNotice(error instanceof Error ? `Impossible de charger les dossiers patients : ${error.message}` : 'Impossible de charger les dossiers patients.')
     })
     return () => { active = false }
-  }, [session?.facility.id, session?.permissions.join(','), session?.facility.type])
+  }, [session?.facility.id, session?.permissions.join(','), session?.facility.type, patientRefreshKey])
 
   useEffect(() => {
     if (!session || !session.permissions.includes('appointments') || session.facility.type !== 'hospital') return
@@ -136,24 +127,6 @@ function App() {
     return created
   }
 
-  function saveInvoice(record: InvoiceRecord) {
-    const next = [record, ...invoices]
-    setInvoices(next)
-    localStorage.setItem(scopedKey(session, 'invoices'), JSON.stringify(next))
-  }
-
-  function saveLocal<T>(key: string, record: T, update: (records: T[]) => void, records: T[]) {
-    const next = [record, ...records]
-    update(next)
-    localStorage.setItem(scopedKey(session, key.replace('medihub.', '')), JSON.stringify(next))
-  }
-
-  function saveDispensation(record: DispenseRecord, nextLots: MedicationLot[]) {
-    saveLocal('medihub.dispensations', record, setDispensations, dispensations)
-    setMedicationLots(nextLots)
-    localStorage.setItem(scopedKey(session, 'medicationLots'), JSON.stringify(nextLots))
-  }
-
   const routeFeature = featureForRoute(route)
   const pageFeature = featureForPage(page)
   const allowed = (permission?: StaffPermission) => !permission || !!session?.permissions.includes(permission)
@@ -185,28 +158,30 @@ function App() {
       <div className="content">
         {notice && <div className="toast">✓ &nbsp;{notice}<button onClick={() => setNotice('')}>×</button></div>}
         {!allowed(routeFeature || pageFeature) ? <AccessDenied onReturn={() => { navigate('/'); setPage(homePageForRole(session.user.role)) }} /> : route === '/rendez-vous/nouveau' ? <AppointmentPage patients={patients.map(patient => ({ id: patient.id, name: patient.name }))} doctors={doctors.map(doctor => ({ id: doctor.matricule_personnel, name: `${doctor.prenom} ${doctor.nom}`.trim(), specialty: doctor.specialite }))} currentUserId={session.user.id} onBack={() => { navigate('/'); setPage('Rendez-vous') }} onSave={saveAppointment} />
-          : route === '/facturation/nouvelle' ? <InvoicePage patients={patients} onBack={() => { navigate('/'); setPage('Facturation') }} onSave={saveInvoice} />
-          : route === '/consultations/nouvelle' ? <ConsultationPage patients={patients} initialPatientId={new URLSearchParams(window.location.search).get('patient') || undefined} onBack={() => { navigate('/'); setPage('Consultations') }} onSave={record => saveLocal('medihub.consultations', record, setConsultations, consultations)} />
-          : route === '/hospitalisation/nouvelle' ? <AdmissionPage patients={patients} onBack={() => { navigate('/'); setPage('Hospitalisation') }} onSave={record => saveLocal('medihub.admissions', record, setAdmissions, admissions)} />
-          : route === '/laboratoire/prescrire' ? <LabOrderPage patients={patients} onBack={() => { navigate('/'); setPage('Laboratoire') }} onSave={record => saveLocal('medihub.labOrders', record, setLabOrders, labOrders)} />
-          : route === '/pharmacie/delivrance' ? session.facility.type === 'independent-pharmacy' ? <ExternalDispensePage lots={medicationLots} onBack={() => { navigate('/'); setPage('Pharmacie') }} onSave={saveDispensation} /> : <DispensePage patients={patients} lots={medicationLots} onBack={() => { navigate('/'); setPage('Pharmacie') }} onSave={saveDispensation} />
+          : page === 'Consultations' || route === '/consultations/nouvelle' ? <ConsultationsModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
+          : page === 'Hospitalisation' || route === '/hospitalisation/nouvelle' ? <AdmissionsModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
+          : page === 'Laboratoire' || route === '/laboratoire/prescrire' ? <LaboratoryModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
+          : page === 'Facturation' || route === '/facturation/nouvelle' ? <BillingModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
+          : page === 'Pharmacie' || route === '/pharmacie/delivrance' ? <PharmacyModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
           : page === 'Vue d’ensemble' ? session.user.role === 'Administrateur' ? <StaffDashboard key={dashboardRefreshKey} facilityName={session.facility.name} patients={patients} onNavigate={setPage} /> : <RoleDashboard session={session} onNavigate={setPage} />
-          : page === 'Patients' ? <Patients patients={filtered} query={query} setQuery={setQuery} facilityName={session.facility.name} onStartConsultation={patient => { setPage('Consultations'); navigate(`/consultations/nouvelle?patient=${encodeURIComponent(patient.id)}`) }} />
+          : page === 'Patients' ? <Patients patients={filtered} query={query} setQuery={setQuery} facilityName={session.facility.name} canEditMedicalData={session.user.role !== 'Agent d’accueil'} onCreated={message => { setPatientRefreshKey(value => value + 1); setDashboardRefreshKey(value => value + 1); if (message) setNotice(message) }} onStartConsultation={patient => { setPage('Consultations'); navigate(`/consultations/nouvelle?patient=${encodeURIComponent(patient.id)}`) }} />
           : page === 'Personnel' ? <PersonnelPage canManage={session.user.role === 'Administrateur'} onNotice={message => { setNotice(message); setDashboardRefreshKey(value => value + 1) }} />
-          : page === 'Pharmacie' ? session.facility.type === 'independent-pharmacy' ? <IndependentPharmacyPage onCreate={() => navigate('/pharmacie/delivrance')} records={dispensations} lots={medicationLots} /> : <><PharmacyPage /><DispenseRegister records={dispensations} lots={medicationLots} onCreate={() => navigate('/pharmacie/delivrance')} /></>
-          : <ModulePage page={page} appointments={appointments} invoices={invoices} consultations={consultations} admissions={admissions} labOrders={labOrders} onAdd={() => {
+          : <ModulePage page={page} appointments={appointments} onAdd={() => {
             const paths: Record<string, string> = { 'Rendez-vous': '/rendez-vous/nouveau', 'Facturation': '/facturation/nouvelle', 'Consultations': '/consultations/nouvelle', 'Hospitalisation': '/hospitalisation/nouvelle', 'Laboratoire': '/laboratoire/prescrire' }
             if (paths[page]) navigate(paths[page]); else setNotice(`Action ${page.toLowerCase()} prête pour la démonstration.`)
           }} />}
-        <footer>© 2026 MediHub <span>•</span> Dossiers, personnel et indicateurs synchronises ; les autres modules restent a raccorder</footer>
+        <footer>© 2026 MediHub <span>•</span> Les activités affichées sont synchronisées avec les données de l’établissement.</footer>
       </div>
     </main>
 
   </div>
 }
 
-function Patients({ patients, query, setQuery, facilityName, onStartConsultation }: { patients: Patient[]; query: string; setQuery: (v: string) => void; facilityName: string; onStartConsultation: (patient: Patient) => void }) {
+function Patients({ patients, query, setQuery, facilityName, canEditMedicalData, onCreated, onStartConsultation }: { patients: Patient[]; query: string; setQuery: (v: string) => void; facilityName: string; canEditMedicalData: boolean; onCreated: (notice?: string) => void; onStartConsultation: (patient: Patient) => void }) {
   const [selectedId, setSelectedId] = useState('')
+  const [showCreate, setShowCreate] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const selected = patients.find(patient => patient.id === selectedId) || patients[0]
 
   function exportCsv() {
@@ -216,16 +191,34 @@ function Patients({ patients, query, setQuery, facilityName, onStartConsultation
     const link = document.createElement('a'); link.href = url; link.download = 'medihub-patients.csv'; link.click(); URL.revokeObjectURL(url)
   }
 
+  async function createPatient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError('')
+    const data = new FormData(event.currentTarget)
+    try {
+      const patient = await createStaffPatient({
+        nom_patient: String(data.get('nom')).trim(), prenom_patient: String(data.get('prenom')).trim(),
+        date_naissance: String(data.get('date_naissance')), sexe: String(data.get('sexe')) as 'F' | 'M',
+        adresse: String(data.get('adresse')).trim(), numero_piece_identite: String(data.get('identite')).trim(),
+        ...(canEditMedicalData ? { allergies: String(data.get('allergies')).trim(), antecedents_medicaux: String(data.get('antecedents')).trim(), groupe_sanguin: String(data.get('groupe_sanguin')) || undefined } : {}),
+      })
+      const phone = String(data.get('telephone') || '').trim()
+      if (phone) {
+        try { await addStaffPatientTelephone({ id_patient: patient.id_patient, numero_telephone: phone, type_telephone: 'principal' }) }
+        catch (reason) { setShowCreate(false); onCreated(`Dossier créé, mais le téléphone n’a pas été enregistré : ${reason instanceof Error ? reason.message : 'erreur API'}`); return }
+      }
+      onCreated()
+      setShowCreate(false)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'La création du dossier a échoué.') }
+    finally { setSaving(false) }
+  }
+
   return <>
-    <div className="directory-toolbar"><div className="directory-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un patient par nom ou numero de dossier..."/><button className="btn-light" onClick={exportCsv} disabled={!patients.length}>Exporter CSV</button></div></div>
+    <div className="directory-toolbar"><div className="directory-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un patient par nom ou numero de dossier..."/><button className="btn-light" onClick={exportCsv} disabled={!patients.length}>Exporter CSV</button><button className="btn-primary" onClick={() => { setError(''); setShowCreate(true) }}>+ Nouveau patient</button></div></div>
     <div className="patient-record-layout"><section className="panel active-records"><div className="records-heading"><div><b>DOSSIERS DE {facilityName.toUpperCase()}</b><small>{patients.length} dossier{patients.length === 1 ? '' : 's'} transmis par le serveur</small></div><span className="count-pill">{patients.length}</span></div><div className="record-list">{patients.map(patient => <button key={patient.id} className={`record-entry ${selected?.id === patient.id ? 'chosen' : ''}`} onClick={() => setSelectedId(patient.id)}><div className={`record-photo avatar-${patient.color}`}>{patient.initials}</div><div className="record-name"><b>{patient.name}</b><small>{patient.id}</small></div><div className="record-meta"><span>{patient.groupeSanguin || 'Groupe sanguin non renseigne'}</span><small>{patient.age ? `${patient.age} ans` : 'Age non renseigne'} ? {patient.sex || 'Sexe non renseigne'}</small></div></button>)}</div>{!patients.length && <p className="saved-empty">Aucun dossier patient n'est encore associe a cet etablissement. Les patients charges depuis MediHub apparaitront ici.</p>}</section>
       {selected && <section className="patient-profile"><div className="panel patient-identity"><div className={`profile-photo avatar-${selected.color}`}>{selected.initials}</div><div className="profile-main"><h2>{selected.name}</h2><span className="profile-pills"><i>Dossier MediHub</i><i>{selected.age ? `${selected.age} ans` : 'Age non renseigne'} ? {selected.sex}</i></span><p>Dossier : {selected.id}</p><p>{selected.adresse || 'Adresse non renseignee'}</p><p>Telephone : {selected.phone}</p></div><div className="profile-actions"><button className="btn-primary" onClick={() => onStartConsultation(selected)}>Demarrer une consultation</button></div><div className="allergy-alert"><b>INFORMATIONS MEDICALES DU DOSSIER</b><span>Allergies : {selected.allergies || 'non renseignees'} ? Antecedents : {selected.antecedents || 'non renseignes'} ? Groupe sanguin : {selected.groupeSanguin || 'non renseigne'}</span></div></div><section className="panel civil-register"><div className="panel-head"><h2>Dossier rattache a {facilityName}</h2></div><div className="civil-cards"><article><small>IDENTITE</small><p>{selected.name}<br/>Sexe : {selected.sex || 'non renseigne'}<br/>Age : {selected.age || 'non renseigne'}<br/>Numero : {selected.id}</p></article><article><small>CONTACT</small><p>Telephone principal :<br/><b>{selected.phone}</b></p></article><article><small>DONNEES MEDICALES</small><p>Allergies : {selected.allergies || 'non renseignees'}<br/>Antecedents : {selected.antecedents || 'non renseignes'}<br/>Groupe sanguin : {selected.groupeSanguin || 'non renseigne'}</p></article></div></section>{!!selected.sharedHistories?.length && <section className="panel staff-shared-history"><div className="panel-head"><div><h2>Historique medical partage</h2><p>Historique transmis avec le consentement du patient</p></div><span className="count-pill">{selected.sharedHistories.length}</span></div>{selected.sharedHistories.map(history => <article key={history.id_historique_partage} className="staff-shared-record"><div><b>Etablissement source : {history.hopital_source}</b><small>Consentement : {new Date(history.date_consentement).toLocaleDateString('fr-FR')}</small></div><p>Allergies : {history.resume_medical.allergies || 'non renseignees'}<br/>Antecedents : {history.resume_medical.antecedents_medicaux || 'non renseignes'}<br/>Groupe sanguin : {history.resume_medical.groupe_sanguin || 'non renseigne'}</p>{history.resume_medical.mesures_poids?.map((measure, index) => <small className="staff-shared-weight" key={`${measure.date_mesure}-${index}`}>Poids : {measure.poids_kg} kg ? {measure.date_mesure}</small>)}</article>)}</section>}</section>}
     </div>
+    {showCreate && <div className="modal-backdrop" onClick={() => !saving && setShowCreate(false)}><form className="modal staff-create-form" onSubmit={createPatient} onClick={event => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">DOSSIER HOSPITALIER</span><h2>Nouveau patient</h2></div><button type="button" className="close" onClick={() => setShowCreate(false)} disabled={saving}>×</button></div><div className="form-row"><label>Prénom<input name="prenom" maxLength={40} required autoFocus/></label><label>Nom<input name="nom" maxLength={40} required/></label></div><div className="form-row"><label>Date de naissance<input name="date_naissance" type="date" required/></label><label>Sexe<select name="sexe" required defaultValue=""><option value="" disabled>Choisir</option><option value="F">Femme</option><option value="M">Homme</option></select></label></div><label>Téléphone (facultatif)<input name="telephone" maxLength={20}/></label><label>Adresse<input name="adresse" maxLength={100}/></label><label>Numéro de pièce d’identité (facultatif)<input name="identite" maxLength={30}/></label>{canEditMedicalData && <><label>Allergies<input name="allergies" maxLength={300}/></label><label>Antécédents médicaux<input name="antecedents" maxLength={300}/></label><label>Groupe sanguin<select name="groupe_sanguin" defaultValue=""><option value="">Non renseigné</option>{['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(group => <option key={group}>{group}</option>)}</select></label></>}{error && <p className="auth-error" role="alert">{error}</p>}<p className="demo-hint">Le dossier sera créé dans PostgreSQL et rattaché à {facilityName}.</p><div className="modal-actions"><button type="button" className="btn-light" onClick={() => setShowCreate(false)} disabled={saving}>Annuler</button><button className="btn-primary" disabled={saving}>{saving ? 'Enregistrement…' : 'Créer le dossier'}</button></div></form></div>}
   </>
-}
-
-function PharmacyPage() {
-  return <section className="panel empty-state"><span className="empty-icon">?</span><h1>Pharmacie</h1><p>Les stocks et d?livrances de d?monstration ont ?t? retir?s. Le raccordement de cette vue aux donn?es pharmacie du serveur reste ? faire.</p></section>
 }
 
 function RoleDashboard({ session, onNavigate }: { session: AuthSession; onNavigate: (page: string) => void }) {
@@ -247,28 +240,11 @@ function AccessDenied({ onReturn }: { onReturn: () => void }) {
   return <section className="panel access-denied"><span className="empty-icon">⌑</span><h1>Accès non disponible</h1><p>Ce profil ne dispose pas de l’autorisation nécessaire pour ouvrir ce module.</p><button className="btn-primary" onClick={onReturn}>Retour à mon tableau de bord</button></section>
 }
 
-function IndependentPharmacyPage({ onCreate, records, lots }: { onCreate: () => void; records: DispenseRecord[]; lots: MedicationLot[] }) {
-  return <div className="independent-pharmacy"><div className="page-heading"><div><span className="eyebrow">ESPACE PARTENAIRE · ENTITÉ INDÉPENDANTE</span><h1>Pharmacie Centrale Rohero</h1><p>Votre compte et votre stock sont séparés de ceux des hôpitaux.</p></div><button className="btn-primary" onClick={onCreate}>＋ Valider une délivrance partenaire</button></div><div className="partner-boundary"><b>Établissement autonome</b><span>Aucun hôpital n’est rattaché par défaut. Les ordonnances partenaires seront vérifiées par le backend lors de son intégration.</span></div><DispenseRegister records={records} lots={lots} onCreate={onCreate} /></div>
-}
-
-function ModulePage({ page, onAdd, appointments, invoices, consultations, admissions, labOrders }: { page: string; onAdd: () => void; appointments: AppointmentRecord[]; invoices: InvoiceRecord[]; consultations: ConsultationRecord[]; admissions: AdmissionRecord[]; labOrders: LabOrderRecord[] }) {
+function ModulePage({ page, onAdd, appointments }: { page: string; onAdd: () => void; appointments: AppointmentRecord[] }) {
   return <><ModuleLanding page={page} onAdd={onAdd} />
-    {page === 'Rendez-vous' && <section className="panel saved-records"><div className="panel-head"><div><h2>Rendez-vous créés</h2><p>Synchronisés avec la base MediHub</p></div><strong>{appointments.length}</strong></div>{appointments.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>DATE & HEURE</th><th>PATIENT</th><th>PRATICIEN</th><th>MOTIF</th></tr></thead><tbody>{appointments.map((item) => <tr key={item.id}><td>{item.date} · {item.time}</td><td><b>{item.patient}</b></td><td>{item.doctor}</td><td>{item.reason}</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucun rendez-vous créé pour le moment.</p>}</section>}
-    {page === 'Facturation' && <section className="panel saved-records"><div className="panel-head"><div><h2>Factures générées</h2><p>Enregistrées dans ce navigateur</p></div><strong>{invoices.length}</strong></div>{invoices.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>NUMÉRO</th><th>PATIENT</th><th>DATE</th><th>TOTAL</th><th>PART PATIENT</th></tr></thead><tbody>{invoices.map((item) => <tr key={item.id}><td>{item.id}</td><td><b>{item.patient}</b></td><td>{item.date}</td><td>{item.total.toLocaleString('fr-FR')} BIF</td><td>{item.patientShare.toLocaleString('fr-FR')} BIF</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucune facture générée pour le moment.</p>}</section>}
-    {page === 'Consultations' && <RecordPanel title="Consultations ouvertes" records={consultations.map(item => [item.id, item.patient, item.date, item.reason, item.doctor])} headings={['RÉFÉRENCE', 'PATIENT', 'DATE', 'MOTIF', 'PRATICIEN']} />}
-    {page === 'Hospitalisation' && <RecordPanel title="Admissions enregistrées" records={admissions.map(item => [item.id, item.patient, item.date, item.service, `Lit ${item.bed}`])} headings={['RÉFÉRENCE', 'PATIENT', 'DATE', 'SERVICE', 'LIT']} />}
-    {page === 'Laboratoire' && <RecordPanel title="Prescriptions envoyées" records={labOrders.map(item => [item.id, item.patient, item.date, item.exam, item.priority])} headings={['RÉFÉRENCE', 'PATIENT', 'DATE', 'EXAMEN', 'PRIORITÉ']} />}
+    {page === 'Rendez-vous' && <section className="panel saved-records"><div className="panel-head"><div><h2>Rendez-vous créés</h2><p>Synchronisés avec la base MediHub</p></div><strong>{appointments.length}</strong></div>{appointments.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>DATE & HEURE</th><th>PATIENT</th><th>PRATICIEN</th><th>MOTIF</th></tr></thead><tbody>{appointments.map(item => <tr key={item.id}><td>{item.date} · {item.time}</td><td><b>{item.patient}</b></td><td>{item.doctor}</td><td>{item.reason}</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucun rendez-vous créé pour le moment.</p>}</section>}
   </>
 }
-
-function RecordPanel({ title, records, headings }: { title: string; records: string[][]; headings: string[] }) {
-  return <section className="panel saved-records"><div className="panel-head"><div><h2>{title}</h2><p>Stockes dans ce navigateur</p></div><strong>{records.length}</strong></div>{records.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr>{headings.map(heading => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{records.map((row, index) => <tr key={`${row[0]}-${index}`}>{row.map((value, cell) => <td key={`${cell}-${value}`}>{cell === 0 ? <b>{value}</b> : value}</td>)}</tr>)}</tbody></table></div> : <p className="saved-empty">Aucun élément enregistré pour le moment.</p>}</section>
-}
-
-function DispenseRegister({ records, lots, onCreate }: { records: DispenseRecord[]; lots: MedicationLot[]; onCreate: () => void }) {
-  return <section className="panel saved-records"><div className="panel-head"><div><h2>Registre des délivrances & niveaux de stock</h2><p>Les sorties enregistrées décrémentent le lot correspondant.</p></div><button className="btn-primary" onClick={onCreate}>＋ Nouvelle délivrance</button></div><div className="lot-stock-grid">{lots.map(lot => <article key={lot.id}><small>{lot.id}</small><b>{lot.medication}</b><span>{lot.stock} {lot.unit} en stock</span></article>)}</div>{records.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>RÉFÉRENCE</th><th>DATE</th><th>PATIENT</th><th>MÉDICAMENT</th><th>LOT</th><th>QTÉ</th><th>RESTE EN STOCK</th></tr></thead><tbody>{records.map(item => <tr key={item.id}><td>{item.id}</td><td>{item.date}</td><td>{item.patient}</td><td>{item.medication}</td><td>{item.lot}</td><td>{item.quantity}</td><td>{item.stockAfter}</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucune délivrance validée pour le moment.</p>}</section>
-}
-
 function ModuleLanding({ page, onAdd }: { page: string; onAdd: () => void }) {
   const info: Record<string, { eyebrow: string; text: string; button: string }> = {
     'Rendez-vous': { eyebrow: 'ORGANISATION DES SOINS', text: 'Consultez et planifiez les rendez-vous enregistr\u00e9s dans MediHub.', button: '+ Planifier un rendez-vous' },

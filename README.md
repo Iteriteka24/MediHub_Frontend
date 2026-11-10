@@ -40,7 +40,7 @@ Le backend crée un dossier local lors d’une première réservation dans un h�
 
 ## Espace du personnel
 
-L’authentification du personnel utilise la session backend. La liste des patients hospitaliers est chargée depuis l’API; le dossier affiche les résumés médicaux et documents reçus par partage lorsque le rôle du personnel y est autorisé par le backend. Certains formulaires et modules métier du personnel utilisent encore des données de démonstration.
+L’authentification du personnel utilise la session backend. Les dossiers patients, rendez-vous, consultations, admissions, prescriptions et résultats de laboratoire, stocks et ventes de pharmacie, factures et paiements sont lus ou enregistrés via les API MediHub et PostgreSQL, selon les rôles autorisés. La création d’un dossier patient enregistre aussi son numéro de téléphone séparément. Le rafraîchissement des modules relit les données du serveur après chaque écriture. La pharmacie est un établissement séparé : son compte propre est requis pour consulter ou gérer son catalogue et son stock.
 
 ## Compilation
 
