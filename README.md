@@ -47,3 +47,7 @@ L’authentification du personnel utilise la session backend. Les dossiers patie
 ```powershell
 npm run build
 ```
+
+## Docker
+
+Depuis `MediHub_Backend`, `docker compose --env-file .env.docker up --build` démarre PostgreSQL, l'API et les deux interfaces. Les Dockerfiles restent dans ce dépôt : `staff/Dockerfile` pour l'espace du personnel et `patient-portal/Dockerfile` pour le portail patient. Les URL d'API sont intégrées à la compilation via `VITE_API_BASE_URL` et `NEXT_PUBLIC_API_BASE_URL`; pour Railway, définis ces variables sur les domaines publics puis reconstruis l'image.
