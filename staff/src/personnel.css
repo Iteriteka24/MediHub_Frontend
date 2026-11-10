@@ -1,0 +1,6 @@
+.staff-api-error{padding:12px 16px;border-radius:8px;margin:12px 0;background:#fff0ef;color:#a62b25;font-size:13px}
+.staff-create-form{max-height:min(90vh,900px);overflow:auto}
+.staff-create-form .staff-specialty{margin-top:12px}
+.staff-create-form button:disabled{opacity:.65;cursor:wait}
+.dashboard-patients{margin-top:18px}
+.dashboard-patients .saved-empty{padding:24px;text-align:center;line-height:1.6}

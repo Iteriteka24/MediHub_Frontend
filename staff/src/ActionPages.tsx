@@ -25,38 +25,43 @@ export const initialMedicationLots: MedicationLot[] = [
 
 const today = new Date().toISOString().slice(0, 10)
 
-export function AppointmentPage({ onBack, onSave }: { onBack: () => void; onSave: (value: AppointmentRecord) => void }) {
+export function AppointmentPage({ patients, doctors, currentUserId, onBack, onSave }: { patients: { id: string; name: string }[]; doctors: { id: string; name: string; specialty: string }[]; currentUserId: string; onBack: () => void; onSave: (value: AppointmentRecord & { patientId: string; doctorId: string }) => Promise<AppointmentRecord> }) {
   const [saved, setSaved] = useState<AppointmentRecord | null>(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const record: AppointmentRecord = {
-      id: `RDV-${Date.now()}`,
-      patient: String(data.get('patient')).trim(),
-      doctor: String(data.get('doctor')),
-      date: String(data.get('date')),
-      time: String(data.get('time')),
-      reason: String(data.get('reason')).trim(),
-    }
-    onSave(record)
-    setSaved(record)
+    const patient = patients.find(item => item.id === String(data.get('patient')))
+    const doctor = doctors.find(item => item.id === String(data.get('doctor')))
+    if (!patient || !doctor) { setError('Choisissez un patient et un medecin de MediHub.'); return }
+    const record = { id: '', patientId: patient.id, doctorId: doctor.id, patient: patient.name,
+      doctor: `${doctor.name}${doctor.specialty ? ` - ${doctor.specialty}` : ''}`,
+      date: String(data.get('date')), time: String(data.get('time')), reason: String(data.get('reason')).trim() }
+    setSaving(true); setError('')
+    try { setSaved(await onSave(record)) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Le rendez-vous n a pas pu etre enregistre.') }
+    finally { setSaving(false) }
   }
 
-  if (saved) return <ActionPage title="Rendez-vous planifié" eyebrow="CONFIRMATION" onBack={onBack}>
-    <div className="action-success"><span className="success-mark">✓</span><h2>Le rendez-vous est ajouté à votre agenda.</h2><p>Référence : <b>{saved.id}</b></p>
-      <dl className="action-summary"><div><dt>Patient</dt><dd>{saved.patient}</dd></div><div><dt>Praticien</dt><dd>{saved.doctor}</dd></div><div><dt>Date & heure</dt><dd>{saved.date} à {saved.time}</dd></div><div><dt>Motif</dt><dd>{saved.reason}</dd></div></dl>
+  if (saved) return <ActionPage title="Rendez-vous planifie" eyebrow="CONFIRMATION" onBack={onBack}>
+    <div className="action-success"><span className="success-mark">OK</span><h2>Le rendez-vous est enregistre dans MediHub.</h2><p>Reference : <b>{saved.id}</b></p>
+      <dl className="action-summary"><div><dt>Patient</dt><dd>{saved.patient}</dd></div><div><dt>Praticien</dt><dd>{saved.doctor}</dd></div><div><dt>Date & heure</dt><dd>{saved.date} a {saved.time}</dd></div><div><dt>Motif</dt><dd>{saved.reason}</dd></div></dl>
       <button className="btn-primary" onClick={onBack}>Voir le registre des rendez-vous</button></div>
   </ActionPage>
 
-  return <ActionPage title="Planifier un rendez-vous" eyebrow="NOUVEAU RENDEZ-VOUS" onBack={onBack} intro="Renseignez les informations de la consultation. Le rendez-vous sera conservé dans ce navigateur jusqu’au raccordement au serveur.">
+  return <ActionPage title="Planifier un rendez-vous" eyebrow="NOUVEAU RENDEZ-VOUS" onBack={onBack} intro="Le rendez-vous sera enregistre dans MediHub et visible dans l'agenda de l'etablissement.">
     <form className="action-form" onSubmit={submit}>
-      <label>Nom du patient<input name="patient" placeholder="Ex. Aline Mukamana" required /></label>
-      <label>Praticien<select name="doctor" defaultValue="" required><option value="" disabled>Choisir un praticien</option><option>Dr. Aline Manirakiza · Médecine générale</option><option>Dr. Jean Nkurunziza · Cardiologie</option><option>Dr. Chantal Munezero · Pédiatrie</option></select></label>
+      <label>Patient<select name="patient" defaultValue="" required><option value="" disabled>Choisir un patient</option>{patients.map(item => <option key={item.id} value={item.id}>{item.name} - {item.id}</option>)}</select></label>
+      <label>Praticien<select name="doctor" defaultValue={doctors.some(item => item.id === currentUserId) ? currentUserId : ''} required><option value="" disabled>Choisir un medecin</option>{doctors.map(item => <option key={item.id} value={item.id}>{item.name}{item.specialty ? ` - ${item.specialty}` : ''}</option>)}</select></label>
       <label>Date<input name="date" type="date" min={today} defaultValue={today} required /></label>
       <label>Heure<select name="time" defaultValue="09:00" required>{['08:30','09:00','09:30','10:00','10:30','11:00','14:00','14:30','15:00','15:30'].map(time => <option key={time}>{time}</option>)}</select></label>
-      <label className="action-wide">Motif de consultation<textarea name="reason" rows={3} placeholder="Décrivez brièvement le motif" required /></label>
-      <div className="action-form-footer"><button type="button" className="btn-light" onClick={onBack}>Annuler</button><button className="btn-primary">Enregistrer le rendez-vous <span>→</span></button></div>
+      <label className="action-wide">Motif de consultation<textarea name="reason" rows={3} placeholder="Decrivez le motif" required maxLength={200} /></label>
+      {error && <p className="auth-error" role="alert">{error}</p>}
+      {!patients.length && <p className="auth-error" role="status">Aucun patient nest associe a cet etablissement. Ajoutez d abord son dossier.</p>}
+      {!doctors.length && <p className="auth-error" role="status">Aucun medecin nest enregistre dans cet etablissement.</p>}
+      <div className="action-form-footer"><button type="button" className="btn-light" onClick={onBack}>Annuler</button><button className="btn-primary" disabled={saving || !patients.length || !doctors.length}>{saving ? 'Enregistrement...' : 'Enregistrer le rendez-vous'} <span>-&gt;</span></button></div>
     </form>
   </ActionPage>
 }

@@ -13,6 +13,26 @@ export type BackendStaff = {
   type_etablissement: 'hopital' | 'pharmacie'
 }
 
+export type StaffMember = Omit<BackendStaff, 'id_etablissement' | 'type_etablissement'> & {
+  email_professionnel: string
+  date_embauche: string
+  role_acces: string
+  actif: boolean
+  specialite_medecin?: string | null
+}
+
+export type StaffMemberInput = {
+  nom: string
+  prenom: string
+  email_professionnel: string
+  role_metier: string
+  date_embauche: string
+  identifiant_connexion: string
+  role_acces: string
+  password: string
+  specialite?: string
+}
+
 export type ApiSessionResponse = { authenticated: boolean; user?: BackendStaff }
 export type SharedPatientHistory = {
   id_historique_partage: string
@@ -23,7 +43,15 @@ export type SharedPatientHistory = {
 }
 export type BackendPatient = {
   id_patient: string; nom_patient: string; prenom_patient: string; date_naissance: string; sexe: string
+  adresse?: string; allergies?: string; antecedents_medicaux?: string; groupe_sanguin?: string
   telephones: { numero_telephone: string }[]; historiques_medicaux_recus?: SharedPatientHistory[]
+}
+
+export type BackendDoctor = { matricule_personnel: string; nom: string; prenom: string; specialite: string }
+export type BackendAppointment = {
+  id_rdv: string; date_rendez_vous: string; heure_rendez_vous: string; statut_rendez_vous: string
+  id_patient: string; matricule_personnel: string; motif: string
+  patient: { nom: string; prenom: string }; medecin: { nom: string; prenom: string; specialite: string }
 }
 
 function csrfToken() {
@@ -41,8 +69,13 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   }
   const response = await fetch(`${API_BASE}${path}`, { ...options, method, headers, credentials: 'include' })
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: string } | null
-    throw new Error(body?.detail || `Erreur API (${response.status})`)
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null
+    const detail = typeof body?.detail === 'string'
+      ? body.detail
+      : body
+        ? Object.entries(body).map(([field, value]) => `${field} : ${Array.isArray(value) ? value.join(', ') : String(value)}`).join(' · ')
+        : ''
+    throw new Error(detail || `Erreur API (${response.status})`)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -116,4 +149,63 @@ export async function logoutStaff() {
 
 export function getStaffPatients() {
   return apiRequest<BackendPatient[] | { results: BackendPatient[] }>('/api/patients/')
+}
+
+export function getStaffMembers() {
+  return apiRequest<StaffMember[] | { results: StaffMember[] }>('/api/etablissements/personnel/')
+}
+
+export function getStaffDoctors() {
+  return apiRequest<BackendDoctor[] | { results: BackendDoctor[] }>('/api/etablissements/medecins/')
+}
+
+export function getStaffAppointments() {
+  return apiRequest<BackendAppointment[] | { results: BackendAppointment[] }>('/api/soins/rendez-vous/')
+}
+
+export function createStaffAppointment(data: { id_patient: string; matricule_personnel: string; date_rendez_vous: string; heure_rendez_vous: string; motif: string }) {
+  return apiRequest<BackendAppointment>('/api/soins/rendez-vous/', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function createStaffMember(data: StaffMemberInput) {
+  return apiRequest<StaffMember>('/api/etablissements/personnel/', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export type DashboardStatistics = {
+  date_debut: string
+  date_fin: string
+  soins?: {
+    rendez_vous: number
+    rendez_vous_planifies: number
+    rendez_vous_a_venir: number
+    rendez_vous_annules: number
+    consultations: number
+    hospitalisations: number
+    hospitalisations_en_cours: number
+  }
+  pharmacie?: {
+    ventes: number
+    chiffre_ventes: string | number
+    medicaments_sous_seuil: number
+    lots_proches_peremption: number
+  }
+  laboratoire?: {
+    examens_prescrits: number
+    examens_realises: number
+    examens_en_attente: number
+    resultats_disponibles: number
+  }
+  facturation?: {
+    factures_emises: number
+    montant_facture: string | number
+    paiements_recus: string | number
+    factures_soudees: number
+  }
+}
+
+export function getDashboardStatistics() {
+  return apiRequest<DashboardStatistics>('/api/statistiques/')
 }
