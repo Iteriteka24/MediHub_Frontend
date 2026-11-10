@@ -5,7 +5,7 @@ import './personnel.css'
 import { AppointmentPage, type AppointmentRecord } from './ActionPages'
 import { AuthPage } from './AuthPage'
 import { addStaffPatientTelephone, createStaffAppointment, createStaffPatient, getStaffAppointments, getStaffDoctors, getStaffPatients, getStaffSession, logoutStaff, type BackendAppointment, type BackendDoctor, type SharedPatientHistory } from './api'
-import { Dashboard as StaffDashboard } from './Dashboard'
+import { Dashboard as StaffDashboard, PharmacyDashboard } from './Dashboard'
 import { PersonnelPage } from './PersonnelPage'
 import { AdmissionsModule, BillingModule, ConsultationsModule, LaboratoryModule, PharmacyModule } from './PersistedModules'
 import { featureForPage, featureForRoute, homePageForRole, type AuthSession, type StaffPermission } from './auth'
@@ -53,7 +53,7 @@ function App() {
     getStaffSession().then(next => {
       if (active && next) {
         setSession(next)
-        setPage(homePageForRole(next.user.role))
+        setPage(homePageForRole(next.user.role, next.facility.type))
       }
     }).catch(() => {
       if (active) setNotice('Le serveur MediHub est indisponible. Vérifiez qu’il fonctionne sur http://localhost:8000.')
@@ -144,7 +144,7 @@ function App() {
   }
 
   if (checkingSession) return <main className="auth-screen"><div className="auth-card"><div className="auth-brand"><span>✚</span><div><b>MediHub</b><small>ESPACE DU PERSONNEL</small></div></div><p>Vérification de votre session…</p></div></main>
-  if (!session) return <AuthPage onLogin={profile => { setSession(profile); setPage(homePageForRole(profile.user.role)); window.history.replaceState({}, '', '/'); setRoute('/') }} />
+  if (!session) return <AuthPage onLogin={profile => { setSession(profile); setPage(homePageForRole(profile.user.role, profile.facility.type)); window.history.replaceState({}, '', '/'); setRoute('/') }} />
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -163,9 +163,9 @@ function App() {
           : page === 'Laboratoire' || route === '/laboratoire/prescrire' ? <LaboratoryModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
           : page === 'Facturation' || route === '/facturation/nouvelle' ? <BillingModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
           : page === 'Pharmacie' || route === '/pharmacie/delivrance' ? <PharmacyModule session={session} onChanged={() => setDashboardRefreshKey(value => value + 1)} />
-          : page === 'Vue d’ensemble' ? session.user.role === 'Administrateur' ? <StaffDashboard key={dashboardRefreshKey} facilityName={session.facility.name} patients={patients} onNavigate={setPage} /> : <RoleDashboard session={session} onNavigate={setPage} />
+          : page === 'Vue d’ensemble' ? session.user.role === 'Administrateur' && session.facility.type === 'hospital' ? <StaffDashboard key={dashboardRefreshKey} facilityName={session.facility.name} patients={patients} permissions={session.permissions} onNavigate={setPage} /> : session.user.role === 'Administrateur' ? <PharmacyDashboard key={dashboardRefreshKey} facilityName={session.facility.name} onNavigate={setPage} /> : <RoleDashboard session={session} onNavigate={setPage} />
           : page === 'Patients' ? <Patients patients={filtered} query={query} setQuery={setQuery} facilityName={session.facility.name} canEditMedicalData={session.user.role !== 'Agent d’accueil'} onCreated={message => { setPatientRefreshKey(value => value + 1); setDashboardRefreshKey(value => value + 1); if (message) setNotice(message) }} onStartConsultation={patient => { setPage('Consultations'); navigate(`/consultations/nouvelle?patient=${encodeURIComponent(patient.id)}`) }} />
-          : page === 'Personnel' ? <PersonnelPage canManage={session.user.role === 'Administrateur'} onNotice={message => { setNotice(message); setDashboardRefreshKey(value => value + 1) }} />
+          : page === 'Personnel' ? <PersonnelPage canManage={session.user.role === 'Administrateur'} facilityType={session.facility.type} onNotice={message => { setNotice(message); setDashboardRefreshKey(value => value + 1) }} />
           : <ModulePage page={page} appointments={appointments} onAdd={() => {
             const paths: Record<string, string> = { 'Rendez-vous': '/rendez-vous/nouveau', 'Facturation': '/facturation/nouvelle', 'Consultations': '/consultations/nouvelle', 'Hospitalisation': '/hospitalisation/nouvelle', 'Laboratoire': '/laboratoire/prescrire' }
             if (paths[page]) navigate(paths[page]); else setNotice(`Action ${page.toLowerCase()} prête pour la démonstration.`)

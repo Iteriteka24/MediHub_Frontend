@@ -1,4 +1,4 @@
-import type { AuthSession, StaffPermission } from './auth'
+import { permissionsForStaff, type AuthSession } from './auth'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
 
@@ -113,15 +113,6 @@ export function staffSessionFromBackend(user: BackendStaff): AuthSession {
     technicien_labo: 'Technicien de laboratoire',
   }
   const role = roleNames[user.role_metier] || user.role_metier
-  const featureMap: Record<string, StaffPermission[]> = {
-    administrateur: ['dashboard', 'appointments', 'patients', 'consultations', 'admissions', 'laboratory', 'pharmacy', 'billing', 'staff'],
-    medecin: ['dashboard', 'appointments', 'patients', 'consultations', 'admissions', 'laboratory'],
-    infirmier: ['dashboard', 'appointments', 'patients', 'consultations', 'admissions'],
-    secretaire: ['dashboard', 'appointments', 'patients'],
-    pharmacien: ['dashboard', 'pharmacy'],
-    comptable: ['dashboard', 'billing'],
-    technicien_labo: ['dashboard', 'laboratory'],
-  }
   return {
     user: { id: user.matricule_personnel, name, email: user.identifiant_connexion, role },
     facility: {
@@ -130,7 +121,7 @@ export function staffSessionFromBackend(user: BackendStaff): AuthSession {
       type: user.type_etablissement === 'pharmacie' ? 'independent-pharmacy' : 'hospital',
       linkedHospitalIds: [],
     },
-    permissions: featureMap[user.role_metier] || [],
+    permissions: permissionsForStaff(user.role_metier, user.type_etablissement),
     demo: false,
   }
 }

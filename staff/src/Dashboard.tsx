@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { getDashboardStatistics, getStaffMembers, type DashboardStatistics } from './api'
+import type { StaffPermission } from './auth'
 
 type PatientSummary = { initials: string; name: string; id: string; age: number; sex: string; phone: string }
 
-export function Dashboard({ facilityName, patients, onNavigate }: { facilityName: string; patients: PatientSummary[]; onNavigate: (page: string) => void }) {
+export function Dashboard({ facilityName, patients, permissions, onNavigate }: { facilityName: string; patients: PatientSummary[]; permissions: StaffPermission[]; onNavigate: (page: string) => void }) {
   const [statistics, setStatistics] = useState<DashboardStatistics | null>(null)
   const [staffCount, setStaffCount] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -43,6 +44,7 @@ export function Dashboard({ facilityName, patients, onNavigate }: { facilityName
     ['Médicaments sous le seuil', String(statistics?.pharmacie?.medicaments_sous_seuil ?? '—'), 'Alertes de stock actuelles'],
     ['Paiements reçus', currency(statistics?.facturation?.paiements_recus), 'Montant de la période en cours'],
   ]
+  if (!permissions.includes('pharmacy')) metrics.splice(7, 1)
 
   return <>
     <div className="staff-overview-head"><div><span className="eyebrow">TABLEAU DE BORD DE L’ÉTABLISSEMENT</span><h1>{facilityName}</h1><p>Indicateurs chargés depuis les dossiers et les activités enregistrés dans MediHub.</p></div><span className="shift-pill">● &nbsp;Données du serveur</span></div>
@@ -51,5 +53,37 @@ export function Dashboard({ facilityName, patients, onNavigate }: { facilityName
     <section className="panel saved-records dashboard-patients"><div className="panel-head"><div><h2>Dossiers récemment chargés</h2><p>Liste réelle renvoyée par l’API patients de cet établissement</p></div><button className="btn-light" onClick={() => onNavigate('Patients')}>Ouvrir les dossiers</button></div>
       {patients.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>PATIENT</th><th>NUMÉRO DE DOSSIER</th><th>ÂGE</th><th>SEXE</th><th>TÉLÉPHONE</th></tr></thead><tbody>{patients.slice(0, 8).map(patient => <tr key={patient.id}><td><b>{patient.name}</b></td><td>{patient.id}</td><td>{patient.age ? `${patient.age} ans` : 'Non renseigné'}</td><td>{patient.sex || 'Non renseigné'}</td><td>{patient.phone}</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucun dossier patient n’est encore associé à cet établissement. Les nouveaux dossiers apparaîtront ici après leur enregistrement dans MediHub.</p>}
     </section>
+  </>
+}
+
+export function PharmacyDashboard({ facilityName, onNavigate }: { facilityName: string; onNavigate: (page: string) => void }) {
+  const [statistics, setStatistics] = useState<DashboardStatistics['pharmacie'] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    getDashboardStatistics().then(data => {
+      if (active) {
+        setStatistics(data.pharmacie || null)
+        setError('')
+      }
+    }).catch(reason => {
+      if (active) setError(reason instanceof Error ? reason.message : 'Les statistiques de la pharmacie ne sont pas disponibles.')
+    })
+    return () => { active = false }
+  }, [])
+
+  const metrics = [
+    ['Ventes de la période', String(statistics?.ventes ?? '—')],
+    ['Chiffre des ventes', `${Number(statistics?.chiffre_ventes ?? 0).toLocaleString('fr-FR')} BIF`],
+    ['Médicaments sous le seuil', String(statistics?.medicaments_sous_seuil ?? '—')],
+    ['Lots proches de péremption', String(statistics?.lots_proches_peremption ?? '—')],
+  ]
+
+  return <>
+    <div className="staff-overview-head"><div><span className="eyebrow">TABLEAU DE BORD DE LA PHARMACIE</span><h1>{facilityName}</h1><p>Ventes, stock et alertes de péremption de cet établissement.</p></div><span className="shift-pill">● &nbsp;Données du serveur</span></div>
+    {error && <div className="staff-api-error" role="alert">Les statistiques n’ont pas pu être chargées : {error}</div>}
+    <div className="stats-grid">{metrics.map(([label, value], index) => <article className="stat-card" key={label}><div className="stat-top"><span className={`stat-icon ${['sky', 'mint', 'peach', 'lavender'][index]}`}>{['▧', '↗', '!', '◷'][index]}</span></div><p>{label}</p><div className="stat-bottom"><strong>{value}</strong></div></article>)}</div>
+    <section className="panel saved-records"><div className="panel-head"><div><h2>Gestion de la pharmacie</h2><p>Les opérations et les stocks sont limités à cette pharmacie.</p></div></div><button className="btn-primary" onClick={() => onNavigate('Pharmacie')}>Ouvrir le stock et les ventes</button></section>
   </>
 }

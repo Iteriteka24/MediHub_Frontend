@@ -9,19 +9,23 @@ const roles = [
   ['comptable', 'Comptable'],
   ['technicien_labo', 'Technicien de laboratoire'],
   ['administrateur', 'Administrateur'],
-]
+] as const
 
 function recordsOf(response: StaffMember[] | { results: StaffMember[] }) {
   return Array.isArray(response) ? response : response.results
 }
 
-export function PersonnelPage({ canManage, onNotice }: { canManage: boolean; onNotice: (message: string) => void }) {
+export function PersonnelPage({ canManage, facilityType, onNotice }: { canManage: boolean; facilityType: 'hospital' | 'hospital-pharmacy' | 'independent-pharmacy'; onNotice: (message: string) => void }) {
   const [members, setMembers] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [selectedRole, setSelectedRole] = useState('infirmier')
+  const [selectedRole, setSelectedRole] = useState(facilityType === 'hospital' ? 'infirmier' : 'pharmacien')
+  const establishmentRoles = roles.filter(([value]) => {
+    if (value === 'administrateur') return false
+    return facilityType === 'hospital' ? value !== 'pharmacien' : value === 'pharmacien'
+  })
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -68,7 +72,7 @@ export function PersonnelPage({ canManage, onNotice }: { canManage: boolean; onN
   return <>
     <div className="page-heading">
       <div><span className="eyebrow">ÉQUIPE DE L’ÉTABLISSEMENT</span><h1>Personnel</h1><p>Les comptes et rôles affichés proviennent de la base MediHub de cet établissement.</p></div>
-      {canManage && <button className="btn-primary" onClick={() => { setError(''); setShowForm(true) }}>＋ Ajouter un membre</button>}
+      {canManage && <button className="btn-primary" onClick={() => { setError(''); setSelectedRole(facilityType === 'hospital' ? 'infirmier' : 'pharmacien'); setShowForm(true) }}>＋ Ajouter un membre</button>}
     </div>
     <section className="panel saved-records">
       <div className="panel-head"><div><h2>Membres de l’établissement</h2><p>{members.length} compte{members.length === 1 ? '' : 's'} enregistré{members.length === 1 ? '' : 's'}</p></div><button className="btn-light" onClick={() => void refresh()} disabled={loading}>Actualiser</button></div>
@@ -80,11 +84,11 @@ export function PersonnelPage({ canManage, onNotice }: { canManage: boolean; onN
       <div className="form-row"><label>Prénom<input name="prenom" required maxLength={50} autoFocus /></label><label>Nom<input name="nom" required maxLength={50} /></label></div>
       <label>Adresse email professionnelle<input name="email_professionnel" type="email" required maxLength={70} /></label>
       <label>Identifiant de connexion<input name="identifiant_connexion" required maxLength={30} autoComplete="username" /></label>
-      <div className="form-row"><label>Fonction<select name="role_metier" value={selectedRole} onChange={event => setSelectedRole(event.target.value)}>{roles.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Date d’embauche<input name="date_embauche" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label></div>
+      <div className="form-row"><label>Fonction<select name="role_metier" value={selectedRole} onChange={event => setSelectedRole(event.target.value)} required>{establishmentRoles.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Date d’embauche<input name="date_embauche" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label></div>
       <label>Mot de passe provisoire<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label>
       {selectedRole === 'medecin' && <label className="staff-specialty">Spécialité médicale<input name="specialite" required maxLength={40} placeholder="Ex. Médecine générale" /></label>}
       {error && <p className="auth-error" role="alert">{error}</p>}
-      <p className="demo-hint">Le compte sera enregistré sur le serveur et rattaché automatiquement à cet établissement.</p>
+      <p className="demo-hint">Le compte sera rattaché automatiquement à cet établissement. Seul un administrateur de plateforme peut créer un autre administrateur.</p>
       <div className="modal-actions"><button type="button" className="btn-light" disabled={saving} onClick={() => setShowForm(false)}>Annuler</button><button className="btn-primary" disabled={saving}>{saving ? 'Création…' : 'Créer le compte'}</button></div>
     </form></div>}
   </>
