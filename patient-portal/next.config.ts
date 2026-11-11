@@ -11,8 +11,8 @@ const nextConfig: NextConfig = {
     const backend = (process.env.BACKEND_UPSTREAM || process.env.NEXT_PUBLIC_API_BASE_URL || "https://medihubbackend-production.up.railway.app").replace(/\/$/, "");
     return [
       {
-        source: "/api/:path*",
-        destination: `${backend}/api/:path*`,
+        source: "/api/:path*/",
+        destination: `${backend}/api/:path*/`,
       },
     ];
   },
