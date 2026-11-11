@@ -1,6 +1,8 @@
 import { permissionsForStaff, type AuthSession } from './auth'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+const API_BASE = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+  : ''
 
 export type BackendStaff = {
   matricule_personnel: string
