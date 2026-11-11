@@ -7,7 +7,9 @@ RUN npm ci
 COPY patient-portal ./
 
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ARG BACKEND_UPSTREAM=https://medihubbackend-production.up.railway.app
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV BACKEND_UPSTREAM=${BACKEND_UPSTREAM}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

@@ -1,4 +1,8 @@
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+// In production the Next.js app proxies /api/* to Django on the server. This
+// keeps patient session and CSRF cookies on the portal's own origin.
+const API_BASE = process.env.NODE_ENV === 'production'
+  ? ''
+  : (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
 
 export type Hospital = { id_etablissement: string; nom_etablissement: string; adresse: string }
 export type AccountSession = {
