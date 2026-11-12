@@ -16,7 +16,9 @@ export type Doctor = { matricule_personnel: string; nom: string; prenom: string;
 export type Appointment = {
   id_rdv: string; date_rendez_vous: string; heure_rendez_vous: string; statut_rendez_vous: string
   medecin: { matricule_personnel: string; nom: string; prenom: string; specialite: string }
+  motif?: string; motif_refus?: string; nom_hopital?: string
 }
+export type AppointmentSlot = { heure: string; disponible: boolean; raison: string }
 export type BookedAppointment = { id_patient: string; dossier_cree: boolean; rendez_vous: Appointment }
 export type DocumentType = 'resultat_examen' | 'prescription' | 'facture' | 'historique_partage'
 export type PatientDocument = { type_document: DocumentType; id_document: string; titre: string; date: string | null; id_hopital_source?: string }
@@ -85,6 +87,7 @@ export const patientAccountLogin = (identifiant_connexion: string, password: str
 export const verifyPatientAccountCode = (id_code: string, code: string) =>
   patientApi<AccountSession>('/api/portail/compte/codes/verifier/', { method: 'POST', body: JSON.stringify({ id_code, code }) })
 export const getPatientDossiers = () => patientApi<Dossier[]>('/api/portail/compte/dossiers/')
+export const getPatientAppointments = () => patientApi<Appointment[]>('/api/portail/compte/rendez-vous/')
 export const getHospitals = () => patientApi<Hospital[]>('/api/portail/hopitaux/')
 export const getHospitalDoctors = (hospitalId: string) => {
   const query = new URLSearchParams({ id_hopital: hospitalId })
@@ -93,6 +96,10 @@ export const getHospitalDoctors = (hospitalId: string) => {
 export const checkHospitalAppointmentAvailability = (hospitalId: string, request: PatientAppointmentRequest) => {
   const query = new URLSearchParams({ id_hopital: hospitalId, ...request })
   return patientApi<{ disponible: boolean; raison?: string }>(`/api/portail/compte/disponibilite/?${query}`)
+}
+export const getHospitalAppointmentSlots = (hospitalId: string, matricule_personnel: string, date_rendez_vous: string) => {
+  const query = new URLSearchParams({ id_hopital: hospitalId, matricule_personnel, date_rendez_vous })
+  return patientApi<{ creneaux: AppointmentSlot[] }>(`/api/portail/compte/creneaux/?${query}`)
 }
 export const bookHospitalAppointment = (hospitalId: string, request: PatientAppointmentRequest) =>
   patientApi<BookedAppointment>(`/api/portail/compte/rendez-vous/${hospitalId}/`, { method: 'POST', body: JSON.stringify(request) })

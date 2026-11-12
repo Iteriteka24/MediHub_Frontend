@@ -3,6 +3,7 @@ import './action-pages.css'
 
 export type AppointmentRecord = {
   id: string; patient: string; doctor: string; date: string; time: string; reason: string
+  status?: string; refusalMessage?: string
 }
 
 export type InvoiceRecord = {

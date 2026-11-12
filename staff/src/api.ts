@@ -53,7 +53,13 @@ export type BackendDoctor = { matricule_personnel: string; nom: string; prenom: 
 export type BackendAppointment = {
   id_rdv: string; date_rendez_vous: string; heure_rendez_vous: string; statut_rendez_vous: string
   id_patient: string; matricule_personnel: string; motif: string
+  motif_refus?: string
   patient: { nom: string; prenom: string }; medecin: { nom: string; prenom: string; specialite: string }
+}
+export type BackendAvailability = {
+  id_disponibilite: string; matricule_personnel: string; date_disponibilite: string
+  heure_debut: string; heure_fin: string; duree_creneau: number
+  medecin: { nom: string; prenom: string; specialite: string }
 }
 
 export type BackendConsultation = {
@@ -185,6 +191,12 @@ export function getStaffAppointments() {
 export function createStaffAppointment(data: { id_patient: string; matricule_personnel: string; date_rendez_vous: string; heure_rendez_vous: string; motif: string }) {
   return apiRequest<BackendAppointment>('/api/soins/rendez-vous/', { method: 'POST', body: JSON.stringify(data) })
 }
+export const getDoctorAvailabilities = () => apiRequest<BackendAvailability[]>('/api/soins/disponibilites/')
+export const createDoctorAvailability = (data: { matricule_personnel: string; date_disponibilite: string; heure_debut: string; heure_fin: string; duree_creneau: number }) =>
+  apiRequest<BackendAvailability>('/api/soins/disponibilites/', { method: 'POST', body: JSON.stringify(data) })
+export const deleteDoctorAvailability = (id: string) => apiRequest<void>(`/api/soins/disponibilites/${id}/`, { method: 'DELETE' })
+export const confirmStaffAppointment = (id: string) => apiRequest<BackendAppointment>(`/api/soins/rendez-vous/${id}/confirmer/`, { method: 'POST', body: '{}' })
+export const rejectStaffAppointment = (id: string, motif_refus: string) => apiRequest<BackendAppointment>(`/api/soins/rendez-vous/${id}/refuser/`, { method: 'POST', body: JSON.stringify({ motif_refus }) })
 
 export const getStaffConsultations = () => apiRequest<BackendConsultation[]>('/api/soins/consultations/')
 export const createStaffConsultation = (data: { id_patient: string; date_acte: string; libelle_acte: string; montant_base: number; diagnostic: string; observations?: string; id_rendez_vous?: string }) => apiRequest<BackendConsultation>('/api/soins/consultations/', { method: 'POST', body: JSON.stringify(data) })

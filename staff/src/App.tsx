@@ -4,7 +4,7 @@ import './reference-overrides.css'
 import './personnel.css'
 import { AppointmentPage, type AppointmentRecord } from './ActionPages'
 import { AuthPage } from './AuthPage'
-import { addStaffPatientTelephone, createStaffAppointment, createStaffPatient, getStaffAppointments, getStaffDoctors, getStaffPatients, getStaffSession, logoutStaff, type BackendAppointment, type BackendDoctor, type SharedPatientHistory } from './api'
+import { addStaffPatientTelephone, confirmStaffAppointment, createStaffAppointment, createDoctorAvailability, createStaffPatient, deleteDoctorAvailability, getDoctorAvailabilities, getStaffAppointments, getStaffDoctors, getStaffPatients, getStaffSession, logoutStaff, rejectStaffAppointment, type BackendAppointment, type BackendAvailability, type BackendDoctor, type SharedPatientHistory } from './api'
 import { Dashboard as StaffDashboard, PharmacyDashboard } from './Dashboard'
 import { PersonnelPage } from './PersonnelPage'
 import { AdmissionsModule, BillingModule, ConsultationsModule, LaboratoryModule, PharmacyModule } from './PersistedModules'
@@ -13,7 +13,7 @@ import { featureForPage, featureForRoute, homePageForRole, type AuthSession, typ
 type Patient = { initials: string; name: string; id: string; age: number; sex: string; phone: string; color: string; adresse?: string; allergies?: string; antecedents?: string; groupeSanguin?: string; sharedHistories?: SharedPatientHistory[] }
 
 function mapAppointment(item: BackendAppointment): AppointmentRecord {
-  return { id: item.id_rdv, patient: `${item.patient.prenom} ${item.patient.nom}`.trim(), doctor: `${item.medecin.prenom} ${item.medecin.nom}${item.medecin.specialite ? ` · ${item.medecin.specialite}` : ''}`.trim(), date: item.date_rendez_vous, time: item.heure_rendez_vous.slice(0, 5), reason: item.motif || '' }
+  return { id: item.id_rdv, patient: `${item.patient.prenom} ${item.patient.nom}`.trim(), doctor: `${item.medecin.prenom} ${item.medecin.nom}${item.medecin.specialite ? ` · ${item.medecin.specialite}` : ''}`.trim(), date: item.date_rendez_vous, time: item.heure_rendez_vous.slice(0, 5), reason: item.motif || '', status: item.statut_rendez_vous, refusalMessage: item.motif_refus || '' }
 }
 
 const nav = [
@@ -127,6 +127,13 @@ function App() {
     return created
   }
 
+  async function decideAppointment(id: string, action: 'confirm' | 'reject', refusalMessage = '') {
+    const result = action === 'confirm' ? await confirmStaffAppointment(id) : await rejectStaffAppointment(id, refusalMessage)
+    const updated = mapAppointment(result)
+    setAppointments(current => current.map(item => item.id === id ? updated : item))
+    setNotice(action === 'confirm' ? 'Demande de rendez-vous confirmée.' : 'Demande refusée ; le créneau est de nouveau disponible pour le patient.')
+  }
+
   const routeFeature = featureForRoute(route)
   const pageFeature = featureForPage(page)
   const allowed = (permission?: StaffPermission) => !permission || !!session?.permissions.includes(permission)
@@ -166,7 +173,7 @@ function App() {
           : page === 'Vue d’ensemble' ? session.user.role === 'Administrateur' && session.facility.type === 'hospital' ? <StaffDashboard key={dashboardRefreshKey} facilityName={session.facility.name} patients={patients} permissions={session.permissions} onNavigate={setPage} /> : session.user.role === 'Administrateur' ? <PharmacyDashboard key={dashboardRefreshKey} facilityName={session.facility.name} onNavigate={setPage} /> : <RoleDashboard session={session} onNavigate={setPage} />
           : page === 'Patients' ? <Patients patients={filtered} query={query} setQuery={setQuery} facilityName={session.facility.name} canEditMedicalData={session.user.role !== 'Agent d’accueil'} onCreated={message => { setPatientRefreshKey(value => value + 1); setDashboardRefreshKey(value => value + 1); if (message) setNotice(message) }} onStartConsultation={patient => { setPage('Consultations'); navigate(`/consultations/nouvelle?patient=${encodeURIComponent(patient.id)}`) }} />
           : page === 'Personnel' ? <PersonnelPage canManage={session.user.role === 'Administrateur'} facilityType={session.facility.type} onNotice={message => { setNotice(message); setDashboardRefreshKey(value => value + 1) }} />
-          : <ModulePage page={page} appointments={appointments} onAdd={() => {
+          : <ModulePage page={page} appointments={appointments} doctors={doctors} canManageSchedule={session.user.role === 'Agent d’accueil' || session.user.role === 'Administrateur'} onDecideAppointment={decideAppointment} onAdd={() => {
             const paths: Record<string, string> = { 'Rendez-vous': '/rendez-vous/nouveau', 'Facturation': '/facturation/nouvelle', 'Consultations': '/consultations/nouvelle', 'Hospitalisation': '/hospitalisation/nouvelle', 'Laboratoire': '/laboratoire/prescrire' }
             if (paths[page]) navigate(paths[page]); else setNotice(`Action ${page.toLowerCase()} prête pour la démonstration.`)
           }} />}
@@ -240,9 +247,57 @@ function AccessDenied({ onReturn }: { onReturn: () => void }) {
   return <section className="panel access-denied"><span className="empty-icon">⌑</span><h1>Accès non disponible</h1><p>Ce profil ne dispose pas de l’autorisation nécessaire pour ouvrir ce module.</p><button className="btn-primary" onClick={onReturn}>Retour à mon tableau de bord</button></section>
 }
 
-function ModulePage({ page, onAdd, appointments }: { page: string; onAdd: () => void; appointments: AppointmentRecord[] }) {
+function ModulePage({ page, onAdd, appointments, doctors, canManageSchedule, onDecideAppointment }: { page: string; onAdd: () => void; appointments: AppointmentRecord[]; doctors: BackendDoctor[]; canManageSchedule: boolean; onDecideAppointment: (id: string, action: 'confirm' | 'reject', reason?: string) => Promise<void> }) {
+  const [availabilities, setAvailabilities] = useState<BackendAvailability[]>([])
+  const [scheduleError, setScheduleError] = useState('')
+  const [scheduleBusy, setScheduleBusy] = useState(false)
+
+  async function reloadAvailabilities() {
+    const rows = await getDoctorAvailabilities()
+    setAvailabilities(Array.isArray(rows) ? rows : (rows as unknown as { results: BackendAvailability[] }).results)
+  }
+
+  useEffect(() => {
+    if (page !== 'Rendez-vous' || !canManageSchedule) return
+    reloadAvailabilities().catch(error => setScheduleError(error instanceof Error ? error.message : 'Impossible de charger les disponibilités.'))
+  }, [page, canManageSchedule])
+
+  async function saveAvailability(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setScheduleBusy(true); setScheduleError('')
+    const form = event.currentTarget
+    const data = new FormData(form)
+    try {
+      await createDoctorAvailability({ matricule_personnel: String(data.get('doctor')), date_disponibilite: String(data.get('date')), heure_debut: `${data.get('start')}:00`, heure_fin: `${data.get('end')}:00`, duree_creneau: Number(data.get('duration')) })
+      form.reset()
+      await reloadAvailabilities()
+    } catch (error) { setScheduleError(error instanceof Error ? error.message : 'La disponibilité n’a pas pu être enregistrée.') }
+    finally { setScheduleBusy(false) }
+  }
+
+  async function removeAvailability(id: string) {
+    setScheduleBusy(true); setScheduleError('')
+    try { await deleteDoctorAvailability(id); await reloadAvailabilities() }
+    catch (error) { setScheduleError(error instanceof Error ? error.message : 'La plage ne peut pas être supprimée.') }
+    finally { setScheduleBusy(false) }
+  }
+
+  async function decide(item: AppointmentRecord, action: 'confirm' | 'reject') {
+    const reason = action === 'reject' ? window.prompt('Indiquez le motif du refus. Le patient le verra dans son espace.')?.trim() : ''
+    if (action === 'reject' && !reason) return
+    try { await onDecideAppointment(item.id, action, reason) }
+    catch (error) { setScheduleError(error instanceof Error ? error.message : 'La demande n’a pas pu être mise à jour.') }
+  }
+
+  const pending = appointments.filter(item => item.status === 'en_attente')
   return <><ModuleLanding page={page} onAdd={onAdd} />
-    {page === 'Rendez-vous' && <section className="panel saved-records"><div className="panel-head"><div><h2>Rendez-vous créés</h2><p>Synchronisés avec la base MediHub</p></div><strong>{appointments.length}</strong></div>{appointments.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>DATE & HEURE</th><th>PATIENT</th><th>PRATICIEN</th><th>MOTIF</th></tr></thead><tbody>{appointments.map(item => <tr key={item.id}><td>{item.date} · {item.time}</td><td><b>{item.patient}</b></td><td>{item.doctor}</td><td>{item.reason}</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucun rendez-vous créé pour le moment.</p>}</section>}
+    {page === 'Rendez-vous' && <>
+      <section className="panel saved-records"><div className="panel-head"><div><h2>Demandes des patients</h2><p>À confirmer ou refuser par l’accueil</p></div><strong>{pending.length}</strong></div>{appointments.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>DATE & HEURE</th><th>PATIENT</th><th>PRATICIEN</th><th>MOTIF / STATUT</th><th>ACTION</th></tr></thead><tbody>{appointments.map(item => <tr key={item.id}><td>{item.date} · {item.time}</td><td><b>{item.patient}</b></td><td>{item.doctor}</td><td>{item.reason || '—'}<br/><small>{item.status === 'en_attente' ? 'En attente de validation' : item.status === 'refuse' ? `Refusé : ${item.refusalMessage || 'motif non renseigné'}` : item.status === 'planifie' ? 'Confirmé' : item.status}</small></td><td>{canManageSchedule && item.status === 'en_attente' ? <span className="appointment-actions"><button className="btn-primary" onClick={() => void decide(item, 'confirm')}>Accepter</button><button className="btn-light" onClick={() => void decide(item, 'reject')}>Refuser</button></span> : '—'}</td></tr>)}</tbody></table></div> : <p className="saved-empty">Aucune demande ni rendez-vous enregistré.</p>}</section>
+      {canManageSchedule && <section className="panel saved-records"><div className="panel-head"><div><h2>Disponibilités des médecins</h2><p>Les créneaux configurés ici seront proposés aux patients.</p></div><strong>{availabilities.length}</strong></div>
+        {canManageSchedule && <form className="availability-form" onSubmit={saveAvailability}><label>Médecin<select name="doctor" required defaultValue=""><option value="" disabled>Choisir</option>{doctors.map(doctor => <option key={doctor.matricule_personnel} value={doctor.matricule_personnel}>Dr. {doctor.prenom} {doctor.nom}</option>)}</select></label><label>Date<input type="date" name="date" min={new Date().toLocaleDateString('en-CA')} required/></label><label>Début<input type="time" name="start" required/></label><label>Fin<input type="time" name="end" required/></label><label>Durée<select name="duration" defaultValue="30"><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></label><button className="btn-primary" disabled={scheduleBusy || !doctors.length}>{scheduleBusy ? 'Enregistrement…' : 'Ajouter la plage'}</button></form>}
+        {scheduleError && <p className="auth-error" role="alert">{scheduleError}</p>}
+        {availabilities.length ? <div className="registry-scroll"><table className="registry-table"><thead><tr><th>DATE</th><th>MÉDECIN</th><th>PLAGE</th><th>DURÉE</th><th>CRÉNEAUX</th>{canManageSchedule && <th></th>}</tr></thead><tbody>{availabilities.map(slot => <tr key={slot.id_disponibilite}><td>{slot.date_disponibilite}</td><td>Dr. {slot.medecin.prenom} {slot.medecin.nom}</td><td>{slot.heure_debut.slice(0, 5)} – {slot.heure_fin.slice(0, 5)}</td><td>{slot.duree_creneau} min</td><td>{Math.floor((new Date(`1970-01-01T${slot.heure_fin}`).getTime() - new Date(`1970-01-01T${slot.heure_debut}`).getTime()) / 60000 / slot.duree_creneau)}</td>{canManageSchedule && <td><button className="btn-light" disabled={scheduleBusy} onClick={() => void removeAvailability(slot.id_disponibilite)}>Supprimer</button></td>}</tr>)}</tbody></table></div> : <p className="saved-empty">Aucune plage configurée. Le réceptionniste peut ajouter les horaires ci-dessus.</p>}
+      </section>}
+    </>}
   </>
 }
 function ModuleLanding({ page, onAdd }: { page: string; onAdd: () => void }) {
