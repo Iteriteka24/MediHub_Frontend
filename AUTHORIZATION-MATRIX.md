@@ -1,36 +1,30 @@
 # Authentification et accès MediHub
 
-## Prototype frontend actuel
+## Règle d’autorisation
 
-L’écran `/connexion` permet de choisir l’un des profils de démonstration. Le mot de passe local est `demo2026`. La session de démonstration est conservée dans le navigateur ; les enregistrements restent séparés par identifiant d’établissement.
+La session du personnel vient de l’API Django. Le frontend masque les modules et les actions selon le rôle et l’établissement ; le backend reste l’autorité et vérifie chaque requête. Une page autorisée peut donc contenir des actions réservées à certains rôles.
 
-Cette connexion sert uniquement à parcourir les interfaces selon un rôle. Elle ne protège aucune donnée : le navigateur contrôle ses propres données et permissions. Ne pas utiliser ces profils en production.
+## Personnel hospitalier
 
-## Matrice rôle → modules
+| Rôle | Modules visibles | Limites principales appliquées par l’API |
+| --- | --- | --- |
+| Administrateur | Tableau de bord, rendez-vous, patients, consultations, hospitalisation, laboratoire, facturation, personnel | Consultations en lecture seule ; peut gérer les chambres, les lits, le catalogue des examens, les hospitalisations et la facturation. La pharmacie est un établissement distinct. |
+| Médecin | Tableau de bord, rendez-vous, patients, consultations, hospitalisation, laboratoire | Peut rédiger et clôturer ses consultations, prescrire des examens et décider une hospitalisation. |
+| Infirmier | Tableau de bord, rendez-vous, patients, consultations, hospitalisation | Consultations en lecture seule ; peut affecter les lits et enregistrer une sortie, mais ne crée pas une hospitalisation. |
+| Secrétaire | Tableau de bord, rendez-vous, patients | Pas d’accès aux consultations, à l’hospitalisation, au laboratoire, à la facturation ou au personnel. |
+| Comptable | Tableau de bord, facturation | Pas d’accès aux modules cliniques. |
+| Technicien de laboratoire | Tableau de bord, laboratoire | Peut enregistrer des résultats ; la prescription reste réservée au médecin. |
 
-| Rôle | Tableau de bord | Rendez-vous | Dossiers patients | Consultations | Hospitalisation | Laboratoire | Pharmacie | Facturation | Personnel |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Administrateur établissement | Oui | Oui | Oui | Oui | Oui | Oui | Oui | Oui | Oui |
-| Médecin | Oui | Oui | Oui | Oui | — | Oui | — | — | — |
-| Infirmier | Oui | Oui | Oui | Oui | Oui | Oui | — | — | — |
-| Pharmacien hospitalier | Oui | — | — | — | — | — | Oui, dans sa pharmacie hospitalière | — | — |
-| Pharmacien partenaire indépendant | Oui | — | — | — | — | — | Oui, dans sa pharmacie uniquement | — | — |
-| Agent d’accueil | Oui | Oui | — | — | — | — | — | — | — |
+## Personnel de pharmacie
 
-L’accès aux dossiers patients est réservé ici aux rôles cliniques, car l’écran de dossier contient des informations médicales. Une permission plus fine (par exemple identité seule pour l’accueil) pourra être ajoutée au backend et au frontend si le besoin est confirmé.
+| Rôle | Modules visibles | Limites principales appliquées par l’API |
+| --- | --- | --- |
+| Administrateur de pharmacie | Tableau de bord, pharmacie, personnel | Gestion du catalogue et des stocks de sa pharmacie ; pas d’accès aux modules hospitaliers. |
+| Pharmacien | Tableau de bord, pharmacie | Gestion du stock et délivrance selon les règles de prescription ; pas d’accès aux modules hospitaliers. |
 
-## Établissements et pharmacies
+## Notes de périmètre
 
-Un compte appartient à un établissement. Les types prévus dans le prototype sont hôpital, pharmacie hospitalière et pharmacie indépendante. La pharmacie Rohero de démonstration a une liste de `linkedHospitalIds` vide : elle ne reçoit pas automatiquement les patients, les rendez-vous ou les stocks de l’Hôpital Kira. Ses lots et délivrances sont enregistrés dans un espace local distinct.
-
-Une relation pharmacie–hôpital devra être explicitement créée et gérée par le backend. Une pharmacie partenaire pourra recevoir une prescription référencée, mais le prototype ne vérifie pas encore son code et ne constitue pas une transmission réelle de dossier patient.
-
-## Contrat à prévoir avec le backend
-
-- Connexion : le serveur vérifie le compte et renvoie une session ou un jeton avec profil, permissions et établissement actif.
-- Profil de session : identité, rôle, permissions effectives, établissement et relations autorisées.
-- Contrôle serveur : chaque API vérifie la session, la permission sur l’action et le périmètre d’établissement ; masquer un bouton ne suffit pas.
-- Pharmacie partenaire : contrôler explicitement la prescription, son établissement d’origine, les informations minimales nécessaires à la délivrance et le droit de la pharmacie destinataire.
-- Fin de session : invalider la session côté serveur et retirer les données de session du navigateur.
-
-Le frontend devra remplacer les profils de démonstration par les réponses de ces endpoints quand le backend sera disponible. Les listes d’autorisations présentes dans le code sont des aides d’affichage, jamais des règles de sécurité.
+- Le rôle seul ne suffit pas : les opérations sont aussi limitées au type et à l’identifiant de l’établissement autorisé.
+- L’administrateur hospitalier peut lire les consultations, mais ne peut ni en rédiger ni en clôturer. Les dossiers restent des données médicales sensibles ; si la politique de l’établissement doit interdire même cette lecture, il faudra modifier aussi les permissions du backend.
+- L’ajout de médicaments est réservé aux comptes de pharmacie par l’API. Le catalogue hospitalier reste consultable par le médecin et l’administrateur, mais le formulaire d’ajout n’est pas proposé à l’administrateur hospitalier.
+- Les règles de menu du frontend sont une aide d’affichage. Elles ne remplacent jamais les contrôles de permission du backend.
