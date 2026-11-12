@@ -117,7 +117,7 @@ export function staffSessionFromBackend(user: BackendStaff): AuthSession {
   const name = `${user.prenom} ${user.nom}`.trim()
   const roleNames: Record<string, string> = {
     administrateur: 'Administrateur', medecin: 'Médecin', infirmier: 'Infirmier',
-    secretaire: 'Agent d’accueil', pharmacien: 'Pharmacien', comptable: 'Comptable',
+    secretaire: 'Réceptionniste', pharmacien: 'Pharmacien', comptable: 'Comptable',
     technicien_labo: 'Technicien de laboratoire',
   }
   const role = roleNames[user.role_metier] || user.role_metier

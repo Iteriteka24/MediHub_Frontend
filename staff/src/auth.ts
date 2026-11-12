@@ -54,6 +54,6 @@ export function homePageForRole(role: StaffRole, facilityType: FacilityType = 'h
   if (role === 'Médecin') return 'Consultations'
   if (role === 'Infirmier') return 'Hospitalisation'
   if (role === 'Pharmacien' || role === 'Pharmacien hospitalier' || role === 'Pharmacien partenaire') return 'Pharmacie'
-  if (role === 'Agent d’accueil') return 'Rendez-vous'
+  if (role === 'Réceptionniste') return 'Rendez-vous'
   return 'Vue d’ensemble'
 }

@@ -4,7 +4,7 @@ import { createStaffMember, getStaffMembers, type StaffMember, type StaffMemberI
 const roles = [
   ['medecin', 'Médecin'],
   ['infirmier', 'Infirmier'],
-  ['secretaire', 'Secrétaire'],
+  ['secretaire', 'Réceptionniste'],
   ['pharmacien', 'Pharmacien'],
   ['comptable', 'Comptable'],
   ['technicien_labo', 'Technicien de laboratoire'],
@@ -85,6 +85,7 @@ export function PersonnelPage({ canManage, facilityType, onNotice }: { canManage
       <label>Adresse email professionnelle<input name="email_professionnel" type="email" required maxLength={70} /></label>
       <label>Identifiant de connexion<input name="identifiant_connexion" required maxLength={30} autoComplete="username" /></label>
       <div className="form-row"><label>Fonction<select name="role_metier" value={selectedRole} onChange={event => setSelectedRole(event.target.value)} required>{establishmentRoles.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Date d’embauche<input name="date_embauche" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} /></label></div>
+      {selectedRole === 'secretaire' && <p className="demo-hint">Accès réception : rendez-vous, disponibilités des médecins et dossiers administratifs des patients. Les données médicales, consultations, facturation et gestion du personnel restent masquées.</p>}
       <label>Mot de passe provisoire<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label>
       {selectedRole === 'medecin' && <label className="staff-specialty">Spécialité médicale<input name="specialite" required maxLength={40} placeholder="Ex. Médecine générale" /></label>}
       {error && <p className="auth-error" role="alert">{error}</p>}
